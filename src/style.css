@@ -150,3 +150,57 @@ textarea { min-height: 7rem; }
 .saved-item .actions { display: flex; gap: .5rem; flex: none; }
 .empty { color: var(--muted); text-align: center; margin-top: 2rem; }
 #saved-summary { margin-top: 1rem; }
+
+/* level pills + topic suggestions */
+.levelbar { display: flex; align-items: center; justify-content: center; gap: .4rem; margin-bottom: 1.4rem; flex-wrap: wrap; }
+.levelbar-label { color: var(--muted); font-size: .85rem; font-weight: 600; margin-right: .4rem; }
+.lvl { padding: .3rem .9rem; font-size: .9rem; font-weight: 600; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; }
+.lvl:hover { color: var(--fg); border-color: var(--green); }
+.lvl.active { color: #fff; background: var(--green); border-color: var(--green); }
+.topic { display: flex; flex-direction: column; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
+.topic-card { width: 100%; background: var(--surface); border: 1px solid var(--line); border-left: 5px solid var(--green); border-radius: 14px; padding: 1rem 1.3rem; }
+.topic-card[hidden] { display: none; }
+.topic-meta { color: var(--green); font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+.topic-it { font-family: var(--serif); font-size: 1.4rem; line-height: 1.4; margin-top: .3rem; }
+.topic-en { color: var(--muted); font-size: .95rem; margin-top: .3rem; }
+
+/* role-play */
+.rp-intro { text-align: center; color: var(--muted); margin: 0 auto 1.2rem; max-width: 34rem; }
+.rp-msg { color: var(--red); text-align: center; min-height: 1.4rem; margin: 0 0 .6rem; }
+.scenarios { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+@media (max-width: 560px) { .scenarios { grid-template-columns: 1fr; } }
+.scenario-card { text-align: left; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 16px; padding: 1.1rem 1.2rem; font: inherit; cursor: pointer; transition: transform .12s, border-color .12s, box-shadow .12s; }
+.scenario-card:hover { transform: translateY(-2px); border-color: var(--green); box-shadow: var(--shadow); }
+.sc-title { font-family: var(--serif); font-size: 1.3rem; font-weight: 600; }
+.sc-en { color: var(--muted); font-size: .85rem; margin-bottom: .6rem; }
+.sc-goal { font-size: .95rem; }
+.sc-goal-en { color: var(--muted); font-size: .85rem; }
+
+.rp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.2rem; }
+.rp-title { font-family: var(--serif); font-size: 1.4rem; font-weight: 600; }
+.rp-goal { color: var(--muted); font-size: .9rem; }
+
+.chat { display: flex; flex-direction: column; gap: .8rem; }
+.bubble { max-width: 86%; padding: .8rem 1.1rem; border-radius: 18px; font-family: var(--serif); font-size: 1.25rem; line-height: 1.65; }
+.bubble.ai { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.bubble.user { align-self: flex-end; background: var(--green-soft); border: 1px solid var(--green); border-bottom-right-radius: 4px; }
+.bubble .pending, .bubble .checking { color: var(--muted); }
+.bubble .replay { display: block; margin-top: .35rem; padding: 0; border: 0; background: none; color: var(--green); font: 600 .8rem var(--sans); cursor: pointer; }
+.bubble-error { color: var(--red); background: var(--red-bg); border-radius: 12px; padding: .7rem 1rem; font-size: .9rem; }
+
+.rp-controls { position: sticky; bottom: 0; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-top: 1.4rem; padding: .9rem 0; background: var(--bg); border-top: 1px solid var(--line); }
+.rp-controls[hidden] { display: none; }
+.rp-status { flex: 1; min-width: 12rem; color: var(--muted); font-size: .9rem; }
+.meter { width: 90px; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; flex: none; }
+.meter-bar { height: 100%; width: 0; background: var(--muted); border-radius: 4px; transition: width .08s; }
+.meter-bar.speaking { background: var(--green); }
+.switch { display: flex; align-items: center; gap: .4rem; font-size: .9rem; font-weight: 600; margin: 0; cursor: pointer; }
+.switch input { width: auto; }
+.btn.primary { background: var(--green); border-color: var(--green); color: #fff; }
+.btn.primary:hover { background: var(--green-hover); color: #fff; }
+.btn.primary:disabled { background: var(--surface); color: var(--muted); }
+
+/* settings extras */
+.voice-test { display: flex; align-items: center; gap: .8rem; margin-top: .8rem; color: var(--muted); font-size: .85rem; }
+label.check { display: flex; align-items: flex-start; gap: .6rem; font-weight: 400; font-size: .9rem; margin-top: 1.2rem; cursor: pointer; }
+label.check input { width: auto; margin-top: .25rem; }

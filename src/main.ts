@@ -1,31 +1,23 @@
 import "./style.css";
-import { correct, transcribe } from "./openai";
+import { renderConversation } from "./chat";
+import { speak } from "./openai";
+import { closePopover, renderPaper } from "./paper";
+import { processChunk } from "./pipeline";
 import { buildProgress } from "./progress";
-import { el, errorRow, highlight } from "./render";
+import { el } from "./render";
+import { renderScenarios } from "./roleplay";
 import { addSaved, deleteSaved, loadSaved } from "./sessions";
+import { getLevel, getSettings, onLevelChange, setLevel } from "./settings";
+import type { SeamOptions } from "./seams";
 import { loadStats, recordSession, resetStats } from "./stats";
-import { store } from "./store";
+import { buildSummary } from "./summary";
+import { LEVELS, randomTopic } from "./topics";
+import type { Level } from "./topics";
 import { PauseTranscriber } from "./transcriber";
-import { TYPE_LABELS } from "./types";
-import type { GrammarError, SavedSession, Sentence } from "./types";
-
-const DEFAULT_PROMPT =
-  "Trascrizione letterale del parlato di un apprendente di italiano. " +
-  "Trascrivi esattamente ciò che viene detto, inclusi gli errori. " +
-  'Esempi di errori da conservare: "il casa", "una libro", "ha nata", "a il supermercato", "io non sapere". ' +
-  "Non correggere, non contrarre e non completare nulla.";
-
-// A chunk that is only a hesitation sound ("hmm", "eh", "uhm"...) is not worth keeping.
-const FILLER_ONLY = /^[\s.,…!?\-–—]*(?:(?:h?m+|e+h+m*|u+h+m*|e+m+|a+h+|boh)[\s.,…!?\-–—]*)*$/i;
+import type { CutReason } from "./transcriber";
+import type { SavedSession, Sentence } from "./types";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const keyEl = $<HTMLInputElement>("key");
-const sttEl = $<HTMLSelectElement>("stt-model");
-const fixEl = $<HTMLInputElement>("fix-model");
-const levelEl = $<HTMLSelectElement>("level");
-const explainEl = $<HTMLSelectElement>("explain");
-const chunkEl = $<HTMLSelectElement>("chunk");
-const promptEl = $<HTMLTextAreaElement>("prompt");
 const recBtn = $<HTMLButtonElement>("rec");
 const statusEl = $("status");
 const meterBar = $("meter-bar");
@@ -42,37 +34,21 @@ const savedList = $("saved-list");
 const savedView = $("saved-view");
 const savedTitle = $("saved-title");
 const savedPaper = $("saved-paper");
+const savedChat = $("saved-chat");
 const savedSummary = $("saved-summary");
-
-// ---------- settings ----------
-const fields: [HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement, string, string][] = [
-  [keyEl, "key", ""],
-  [sttEl, "stt", "gpt-4o-transcribe"],
-  [fixEl, "fix", "gpt-4o"],
-  [levelEl, "level", "B1"],
-  [explainEl, "explain", "English"],
-  [chunkEl, "chunk", "4500"],
-  [promptEl, "prompt.v2", DEFAULT_PROMPT],
-];
-for (const [elem, name, def] of fields) {
-  elem.value = store.get(`correctool.${name}`) ?? def;
-  elem.addEventListener("input", () => store.set(`correctool.${name}`, elem.value));
-}
-
-// ---------- state ----------
-// Each Sentence is really one chunk of speech. Chunks are shown together as one paragraph.
-let segs: Sentence[] = [];
-const pending = new Set<Promise<void>>();
-let transcriber: PauseTranscriber | null = null;
-let nextId = 0;
-let lastSession: Sentence[] | null = null; // the finished session, offered for saving
+const topicBtn = $<HTMLButtonElement>("topic-btn");
+const topicCard = $("topic-card");
 
 // ---------- tabs ----------
-type Tab = "practice" | "progress" | "saved";
+type Tab = "practice" | "roleplay" | "progress" | "saved";
+const TABS: Tab[] = ["practice", "roleplay", "progress", "saved"];
+
 function showTab(tab: Tab) {
   closePopover();
   document.querySelectorAll<HTMLElement>(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
-  (["practice", "progress", "saved"] as Tab[]).forEach((t) => ($(`panel-${t}`).hidden = t !== tab));
+  TABS.forEach((t) => ($(`panel-${t}`).hidden = t !== tab));
+  $("levelbar").hidden = tab === "progress" || tab === "saved";
+  if (tab === "roleplay") renderScenarios();
   if (tab === "progress") renderProgress();
   if (tab === "saved") renderSavedList();
 }
@@ -80,134 +56,81 @@ document.querySelectorAll<HTMLElement>(".tab").forEach((b) =>
   b.addEventListener("click", () => showTab(b.dataset.tab as Tab)),
 );
 
-// ---------- the paragraph ----------
-function renderPaper(target: HTMLElement, list: Sentence[], clickable: boolean) {
-  target.replaceChildren();
-  list.forEach((s, i) => {
-    if (i) target.append(" ");
-    if (s.status === "transcribing") {
-      target.append(el("span", "pending", "…"));
-      return;
-    }
-    const pick = clickable ? (err: GrammarError, span: HTMLElement) => showError(err, span, s) : undefined;
-    const wrap = el("span", s.status === "checking" ? "checking" : "");
-    wrap.append(s.correction ? highlight(s.text, s.correction.errors, pick) : s.text);
-    target.append(wrap);
-    if (s.status === "failed") {
-      const warn = el("span", "warn", " ⚠");
-      warn.title = s.failure ?? "Something went wrong.";
-      target.append(warn);
-    }
-    if (clickable && s.correction?.suggestion) {
-      const btn = el("button", "hintbtn", "✎");
-      btn.type = "button";
-      btn.title = "A more natural way to say this";
-      btn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        showSuggestion(s, btn);
-      });
-      target.append(btn);
-    }
+// ---------- level pills and topic suggestions ----------
+function paintLevel(l: Level) {
+  document.querySelectorAll<HTMLElement>(".lvl").forEach((b) => {
+    const on = b.dataset.level === l;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-pressed", String(on));
   });
+  // a topic shown for another level would be misleading
+  topicCard.hidden = true;
+  topicBtn.textContent = "Suggest a topic";
 }
+document.querySelectorAll<HTMLElement>(".lvl").forEach((b) =>
+  b.addEventListener("click", () => setLevel(b.dataset.level as Level)),
+);
+onLevelChange((l) => {
+  paintLevel(l);
+  renderScenarios();
+});
+paintLevel(getLevel());
+void LEVELS;
+
+topicBtn.addEventListener("click", () => {
+  const t = randomTopic(getLevel());
+  $("topic-it").textContent = t.it;
+  $("topic-en").textContent = t.en;
+  $("topic-level").textContent = getLevel();
+  topicCard.hidden = false;
+  topicBtn.textContent = "Another topic";
+});
+
+// ---------- practice: state ----------
+// Each Sentence is really one chunk of speech. Chunks are shown together as one paragraph.
+let segs: Sentence[] = [];
+const pending = new Set<Promise<void>>();
+let transcriber: PauseTranscriber | null = null;
+let nextId = 0;
+let lastSession: Sentence[] | null = null; // the finished session, offered for saving
+
 const renderLive = () => renderPaper(paperEl, segs, false);
 
-// ---------- popover with the explanation ----------
-const pop = el("div", "popover");
-pop.hidden = true;
-document.body.append(pop);
-let activeSpan: HTMLElement | null = null;
-
-function placePopover(anchor: HTMLElement) {
-  pop.hidden = false;
-  const r = anchor.getBoundingClientRect();
-  const left = Math.max(8, Math.min(r.left, window.innerWidth - pop.offsetWidth - 8));
-  pop.style.left = `${left + window.scrollX}px`;
-  pop.style.top = `${r.bottom + window.scrollY + 8}px`;
-}
-
-function closePopover() {
-  pop.hidden = true;
-  activeSpan?.classList.remove("active");
-  activeSpan = null;
-}
-
-function showError(err: GrammarError, span: HTMLElement, s: Sentence) {
-  closePopover();
-  activeSpan = span;
-  span.classList.add("active");
-  pop.replaceChildren(errorRow(err));
-  if (s.correction && s.correction.corrected !== s.text) {
-    pop.append(el("div", "fixed", `Corrected: ${s.correction.corrected}`));
-  }
-  placePopover(span);
-}
-
-function showSuggestion(s: Sentence, anchor: HTMLElement) {
-  closePopover();
-  pop.replaceChildren(el("div", "why", `“${s.text}”`));
-  const line = el("div", "note", "Maybe you meant: ");
-  line.append(el("em", "", s.correction!.suggestion!));
-  pop.append(line);
-  placePopover(anchor);
-}
-
-document.addEventListener("click", (ev) => {
-  if (!pop.hidden && !pop.contains(ev.target as Node)) closePopover();
-});
-document.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape") closePopover();
-});
-
-// ---------- pipeline: clip -> transcript -> correction ----------
-async function handleSegment(wav: Blob) {
+// ---------- practice: clip -> transcript -> correction ----------
+async function handleSegment(wav: Blob, seam: SeamOptions) {
   const s: Sentence = { id: nextId++, text: "", status: "transcribing" };
   segs.push(s);
   renderLive();
-  const key = keyEl.value.trim();
-  const prompt = promptEl.value;
-  try {
-    const text = (await transcribe(wav, { key, model: sttEl.value, prompt })).trim();
-    // Drop empty results, hesitation-only chunks, and the model echoing our prompt on near-silence.
-    if (!text || FILLER_ONLY.test(text) || (text.length >= 20 && prompt.includes(text))) {
-      segs = segs.filter((x) => x !== s);
-      return renderLive();
-    }
-    s.text = text;
-    s.status = "checking";
-    renderLive();
-    const context = segs
+  const context = () =>
+    segs
       .filter((x) => x.id < s.id && x.text)
       .slice(-3)
       .map((x) => x.text);
-    s.correction = await correct(text, context, {
-      key,
-      model: fixEl.value.trim(),
-      level: levelEl.value,
-      explainIn: explainEl.value as "English" | "simple Italian",
-    });
-    s.status = "done";
-  } catch (err) {
-    s.status = "failed";
-    s.failure = err instanceof Error ? err.message : String(err);
-  }
+  const kept = await processChunk(s, wav, context, getSettings(), renderLive, seam);
+  if (!kept) segs = segs.filter((x) => x !== s);
   renderLive();
 }
 
-function track(wav: Blob) {
-  const p = handleSegment(wav).finally(() => pending.delete(p));
+let prevCutMid = false; // was the previous clip cut in the middle of what you were saying?
+function track(wav: Blob, _seq?: number, reason?: CutReason) {
+  const endsMid = reason === "soft" || reason === "hard";
+  const seam = { endsMid, continues: prevCutMid };
+  prevCutMid = endsMid;
+  const p = handleSegment(wav, seam).finally(() => pending.delete(p));
   pending.add(p);
 }
 
-// ---------- start / stop ----------
+// ---------- practice: start / stop ----------
 async function start() {
-  if (!keyEl.value.trim()) {
+  const st = getSettings();
+  if (!st.key) {
     statusEl.textContent = "Add your OpenAI API key in Settings first.";
     $<HTMLDetailsElement>("settings").open = true;
     return;
   }
   closePopover();
   segs = [];
+  prevCutMid = false;
   lastSession = null;
   tipEl.textContent = "";
   summaryEl.hidden = true;
@@ -221,7 +144,8 @@ async function start() {
         meterBar.classList.toggle("speaking", speaking);
         paperEl.classList.toggle("speaking", speaking);
       },
-      Number(chunkEl.value),
+      st.chunkMs,
+      st.pauseMs,
     );
     await transcriber.start();
     recBtn.textContent = "Stop and review";
@@ -273,25 +197,7 @@ saveBtn.addEventListener("click", () => {
   saveBtn.textContent = "Saved ✓";
 });
 
-// ---------- review ----------
-function buildSummary(list: Sentence[]): { root: HTMLElement; count: number } {
-  const all = list.flatMap((s) => (s.correction?.errors ?? []).map((e) => ({ e, s })));
-  const root = el("div");
-  const groups = new Map<string, typeof all>();
-  for (const item of all) groups.set(item.e.type, [...(groups.get(item.e.type) ?? []), item]);
-  for (const [type, items] of [...groups].sort((a, b) => b[1].length - a[1].length)) {
-    const g = el("div", "group");
-    g.append(el("h3", "", `${TYPE_LABELS[type as keyof typeof TYPE_LABELS] ?? type} (${items.length})`));
-    for (const { e, s } of items) {
-      const row = errorRow(e);
-      row.append(el("div", "src", `“${s.text}”`));
-      g.append(row);
-    }
-    root.append(g);
-  }
-  return { root, count: all.length };
-}
-
+// ---------- practice: review ----------
 function describeReview(list: Sentence[]) {
   summaryBody.replaceChildren();
   if (!list.length) {
@@ -328,7 +234,9 @@ function renderSavedList() {
   savedList.replaceChildren();
   const items = loadSaved();
   if (!items.length) {
-    savedList.append(el("p", "empty", "Nothing saved yet. After a practice session, choose “Save this session” to keep it here."));
+    savedList.append(
+      el("p", "empty", "Nothing saved yet. After a practice session or a role-play, choose “Save” to keep it here."),
+    );
     return;
   }
   for (const s of items) savedList.append(savedItem(s));
@@ -338,9 +246,10 @@ function savedItem(s: SavedSession): HTMLElement {
   const row = el("div", "saved-item");
   const info = el("div", "info");
   const mistakes = s.sentences.reduce((n, c) => n + (c.correction?.errors.length ?? 0), 0);
+  const text = s.sentences.map((c) => c.text).join(" ");
   info.append(
     el("div", "when", new Date(s.date).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })),
-    el("div", "preview", s.sentences.map((c) => c.text).join(" ")),
+    el("div", "preview", s.turns ? `Role-play: ${s.title ?? ""}` : text),
     el("div", "meta", `${mistakes} mistake${mistakes === 1 ? "" : "s"}`),
   );
   const open = el("button", "btn", "Open");
@@ -364,16 +273,44 @@ function openSaved(s: SavedSession) {
   closePopover();
   savedList.hidden = true;
   savedView.hidden = false;
-  savedTitle.textContent = new Date(s.date).toLocaleString([], { dateStyle: "full", timeStyle: "short" });
-  renderPaper(savedPaper, s.sentences, true);
+  const when = new Date(s.date).toLocaleString([], { dateStyle: "full", timeStyle: "short" });
+  savedTitle.textContent = s.title ? `${s.title} · ${when}` : when;
+  savedPaper.hidden = !!s.turns;
+  savedChat.hidden = !s.turns;
+  if (s.turns) renderConversation(savedChat, s.turns, { interactive: true });
+  else renderPaper(savedPaper, s.sentences, true);
   const { root, count } = buildSummary(s.sentences);
   savedSummary.replaceChildren();
-  if (count) {
-    savedSummary.append(el("h3", "", `All mistakes (${count})`), root);
-  }
+  if (count) savedSummary.append(el("h3", "", `All mistakes (${count})`), root);
 }
 
 $("saved-back").addEventListener("click", () => {
   closePopover();
   renderSavedList();
+});
+
+// ---------- settings: audition the voice ----------
+$("tts-test").addEventListener("click", async () => {
+  const note = $("tts-test-note");
+  const st = getSettings();
+  if (!st.key) {
+    note.textContent = "Add your API key first.";
+    return;
+  }
+  note.textContent = "Loading…";
+  try {
+    const blob = await speak("Ciao! Mi chiamo Giulia. Come stai oggi? Raccontami un po' della tua giornata.", {
+      key: st.key,
+      model: st.ttsModel,
+      voice: st.ttsVoice,
+      level: st.level,
+    });
+    const url = URL.createObjectURL(blob);
+    const a = new Audio(url);
+    a.onended = () => URL.revokeObjectURL(url);
+    await a.play();
+    note.textContent = "";
+  } catch (err) {
+    note.textContent = err instanceof Error ? err.message.slice(0, 120) : String(err);
+  }
 });

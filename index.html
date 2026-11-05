@@ -21,9 +21,20 @@
 
       <nav class="tabs" role="tablist">
         <button class="tab active" data-tab="practice" type="button">Practice</button>
+        <button class="tab" data-tab="roleplay" type="button">Role-play</button>
         <button class="tab" data-tab="progress" type="button">My mistakes</button>
-        <button class="tab" data-tab="saved" type="button">Saved sessions</button>
+        <button class="tab" data-tab="saved" type="button">Saved</button>
       </nav>
+
+      <!-- shared by Practice and Role-play -->
+      <div id="levelbar" class="levelbar" role="group" aria-label="Your level">
+        <span class="levelbar-label">Your level</span>
+        <button class="lvl" data-level="A1" type="button">A1</button>
+        <button class="lvl" data-level="A2" type="button">A2</button>
+        <button class="lvl" data-level="B1" type="button">B1</button>
+        <button class="lvl" data-level="B2" type="button">B2</button>
+        <button class="lvl" data-level="C1" type="button">C1</button>
+      </div>
 
       <!-- PRACTICE -->
       <div class="panel" id="panel-practice">
@@ -32,6 +43,15 @@
           <div class="listen">
             <div id="meter" aria-hidden="true"><div id="meter-bar"></div></div>
             <span id="status"></span>
+          </div>
+        </div>
+
+        <div class="topic">
+          <button id="topic-btn" class="btn" type="button">Suggest a topic</button>
+          <div id="topic-card" class="topic-card" hidden>
+            <div class="topic-meta">Topic · <span id="topic-level"></span></div>
+            <div id="topic-it" class="topic-it"></div>
+            <div id="topic-en" class="topic-en"></div>
           </div>
         </div>
 
@@ -64,7 +84,7 @@
               </select>
             </div>
             <div>
-              <label for="fix-model">Correction model</label>
+              <label for="fix-model">Chat &amp; correction model</label>
               <input id="fix-model" list="fix-models" />
               <datalist id="fix-models">
                 <option value="gpt-4o"></option>
@@ -75,25 +95,11 @@
             </div>
           </div>
 
-          <div class="row">
-            <div>
-              <label for="level">Your level</label>
-              <select id="level">
-                <option>A1</option>
-                <option>A2</option>
-                <option selected>B1</option>
-                <option>B2</option>
-                <option>C1</option>
-              </select>
-            </div>
-            <div>
-              <label for="explain">Explanations in</label>
-              <select id="explain">
-                <option value="English">English</option>
-                <option value="simple Italian">Simple Italian</option>
-              </select>
-            </div>
-          </div>
+          <label for="explain">Explanations in</label>
+          <select id="explain">
+            <option value="English">English</option>
+            <option value="simple Italian">Simple Italian</option>
+          </select>
 
           <label for="chunk">How often text appears while you talk</label>
           <select id="chunk">
@@ -101,6 +107,58 @@
             <option value="4500" selected>Every ~4.5 seconds</option>
             <option value="7000">Every ~7 seconds (smoother, slower)</option>
           </select>
+
+          <label for="sentence-pause">A pause this long starts a new sentence</label>
+          <select id="sentence-pause">
+            <option value="1500">1.5 seconds</option>
+            <option value="2500" selected>2.5 seconds</option>
+            <option value="4000">4 seconds (lots of thinking time)</option>
+          </select>
+
+          <label for="turn-silence">Role-play: your turn ends automatically after</label>
+          <select id="turn-silence">
+            <option value="3000">3 seconds of silence</option>
+            <option value="4000" selected>4 seconds of silence</option>
+            <option value="6000">6 seconds of silence</option>
+            <option value="0">Never (only the Next button)</option>
+          </select>
+
+          <div class="row">
+            <div>
+              <label for="tts-model">Role-play voice model</label>
+              <input id="tts-model" list="tts-models" />
+              <datalist id="tts-models">
+                <option value="gpt-4o-mini-tts"></option>
+                <option value="tts-1"></option>
+                <option value="tts-1-hd"></option>
+              </datalist>
+            </div>
+            <div>
+              <label for="tts-voice">Voice</label>
+              <select id="tts-voice">
+                <option>alloy</option>
+                <option>ash</option>
+                <option>ballad</option>
+                <option>coral</option>
+                <option>echo</option>
+                <option>fable</option>
+                <option selected>nova</option>
+                <option>onyx</option>
+                <option>sage</option>
+                <option>shimmer</option>
+                <option>verse</option>
+              </select>
+            </div>
+          </div>
+          <div class="voice-test">
+            <button id="tts-test" class="btn" type="button">▶ Test voice</button>
+            <span id="tts-test-note"></span>
+          </div>
+
+          <label class="check">
+            <input type="checkbox" id="debug-audio" />
+            Show a ▶ after each piece of text to replay the audio that was sent (to find out why a transcription is wrong)
+          </label>
 
           <label for="prompt">Verbatim transcription prompt</label>
           <textarea id="prompt"></textarea>
@@ -111,18 +169,62 @@
         </p>
       </div>
 
+      <!-- ROLE-PLAY -->
+      <div class="panel" id="panel-roleplay" hidden>
+        <div id="rp-picker">
+          <p class="rp-intro">Pick a situation. The AI plays the other person, in Italian, and ends the conversation when it's done.</p>
+          <p id="rp-msg" class="rp-msg"></p>
+          <div id="rp-scenarios" class="scenarios"></div>
+        </div>
+
+        <div id="rp-chat" hidden>
+          <div class="rp-head">
+            <div>
+              <div id="rp-title" class="rp-title"></div>
+              <div id="rp-goal" class="rp-goal"></div>
+            </div>
+            <button id="rp-end" class="btn" type="button">End conversation</button>
+          </div>
+
+          <div id="rp-log" class="chat" aria-live="polite"></div>
+
+          <div id="rp-controls" class="rp-controls">
+            <div class="meter" aria-hidden="true"><div id="rp-meter-bar" class="meter-bar"></div></div>
+            <span id="rp-status" class="rp-status"></span>
+            <label class="switch"><input type="checkbox" id="rp-voice" /> Voice</label>
+            <button id="rp-next" class="btn primary" type="button" disabled>Next →</button>
+          </div>
+
+          <div id="rp-after" hidden>
+            <p id="rp-tip" class="tip"></p>
+            <div id="rp-save-bar" class="save-bar" hidden>
+              <button id="rp-save-btn" class="btn" type="button">Save this conversation</button>
+              <span id="rp-save-note"></span>
+            </div>
+            <section id="rp-summary" hidden>
+              <details class="card">
+                <summary id="rp-summary-title">All mistakes</summary>
+                <div id="rp-summary-body"></div>
+              </details>
+            </section>
+            <div class="reset-row"><button id="rp-new" class="btn" type="button">New conversation</button></div>
+          </div>
+        </div>
+      </div>
+
       <!-- MY MISTAKES -->
       <div class="panel" id="panel-progress" hidden>
         <div id="progress-body"></div>
       </div>
 
-      <!-- SAVED SESSIONS -->
+      <!-- SAVED -->
       <div class="panel" id="panel-saved" hidden>
         <div id="saved-list"></div>
         <div id="saved-view" hidden>
           <button id="saved-back" class="btn" type="button">← All saved sessions</button>
           <h2 id="saved-title"></h2>
           <section id="saved-paper" class="paper"></section>
+          <div id="saved-chat" class="chat" hidden></div>
           <p class="tip">Click an underlined mistake to see why, or ✎ for a more natural phrasing.</p>
           <div id="saved-summary"></div>
         </div>

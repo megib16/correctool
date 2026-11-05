@@ -43,11 +43,21 @@ export interface Sentence {
   failure?: string;
 }
 
-/** A session the user chose to keep. */
+/** One turn of a role-play conversation. */
+export interface Turn {
+  role: "ai" | "user";
+  text: string;
+  /** For the learner's turns: the chunks of speech, with their corrections. */
+  segments?: Sentence[];
+}
+
+/** A session the user chose to keep. Role-play sessions also carry their title and turns. */
 export interface SavedSession {
   id: number;
   date: string;
   sentences: Sentence[];
+  title?: string;
+  turns?: Turn[];
 }
 
 export interface PairStat {

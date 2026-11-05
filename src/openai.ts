@@ -111,3 +111,99 @@ export async function correct(
   if (!msg?.content) throw new Error(`No correction returned${msg?.refusal ? `: ${msg.refusal}` : ""}`);
   return JSON.parse(msg.content) as Correction;
 }
+
+// ---------- role-play: the AI's side of the conversation ----------
+export interface ChatTurn {
+  role: "ai" | "user";
+  text: string;
+}
+
+export interface ConverseOptions {
+  key: string;
+  model: string;
+  level: string;
+  setup: string; // who the AI is and the situation
+  userTurns: number; // how many times the learner has spoken so far
+  maxTurns: number; // the conversation must be over by this many learner turns
+}
+
+const LEVEL_GUIDE: Record<string, { style: string; length: string }> = {
+  A1: { style: "very simple present-tense sentences, basic everyday vocabulary, one idea at a time", length: "one or two short sentences" },
+  A2: { style: "simple sentences with common vocabulary; past and near future are fine", length: "one or two short sentences" },
+  B1: { style: "clear everyday Italian with some connectors and mixed tenses", length: "one to three sentences" },
+  B2: { style: "natural, fluent Italian, occasional idioms, subjunctive where natural", length: "two to four sentences" },
+  C1: { style: "sophisticated, idiomatic, nuanced Italian", length: "two to four sentences" },
+};
+
+const REPLY_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["reply", "end"],
+  properties: { reply: { type: "string" }, end: { type: "boolean" } },
+} as const;
+
+export async function converse(history: ChatTurn[], o: ConverseOptions): Promise<{ reply: string; end: boolean }> {
+  const g = LEVEL_GUIDE[o.level] ?? LEVEL_GUIDE.B1;
+  const lastExchange = o.userTurns >= o.maxTurns - 1;
+  const system = `You are playing a role in a spoken Italian practice conversation with a ${o.level}-level learner.
+${o.setup}
+
+Rules:
+- Speak only Italian, at CEFR ${o.level}: ${g.style}. Keep each reply to ${g.length}.
+- Stay in character and keep the conversation moving. Usually finish with one natural question or prompt for the learner.
+- The learner's messages come from speech transcription and may contain grammar mistakes. Do NOT correct them and do not comment on their Italian. Just answer naturally what they meant. If a message is unintelligible, politely ask them to repeat.
+- You decide when the conversation ends. Set "end" to true when the scene has reached its natural conclusion (order paid, problem solved, interview over, goodbye said) or when the limit below is reached. When "end" is true, "reply" must be a natural closing line with no question.
+- The learner has spoken ${o.userTurns} time(s) so far. The conversation must be over after at most ${o.maxTurns} learner turns.${
+    lastExchange ? " This is the final exchange: wrap up now with a closing line and set end to true." : ""
+  }`;
+
+  const messages = [
+    { role: "system", content: system },
+    ...(history.length
+      ? history.map((t) => ({ role: t.role === "ai" ? "assistant" : "user", content: t.text }))
+      : [{ role: "user", content: "[Begin the scene now with your opening line.]" }]),
+  ];
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${o.key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: o.model,
+      messages,
+      response_format: { type: "json_schema", json_schema: { name: "reply", strict: true, schema: REPLY_SCHEMA } },
+    }),
+  });
+  if (!res.ok) throw new Error(`Conversation ${res.status}: ${await res.text()}`);
+  const msg = (await res.json()).choices?.[0]?.message;
+  if (!msg?.content) throw new Error(`No reply returned${msg?.refusal ? `: ${msg.refusal}` : ""}`);
+  return JSON.parse(msg.content) as { reply: string; end: boolean };
+}
+
+// ---------- role-play: spoken replies ----------
+export interface SpeakOptions {
+  key: string;
+  model: string;
+  voice: string;
+  level: string;
+}
+
+export async function speak(text: string, o: SpeakOptions): Promise<Blob> {
+  const slow = o.level === "A1" || o.level === "A2";
+  const body: Record<string, unknown> = { model: o.model, voice: o.voice, input: text, response_format: "mp3" };
+  // Only the newer gpt-4o speech models accept style instructions.
+  if (o.model.startsWith("gpt-4o")) {
+    body.instructions =
+      "You are a native Italian speaker from Italy. Speak with an authentic Italian accent and natural, " +
+      "expressive intonation, like a real person in a conversation, not like someone reading aloud, and never " +
+      "like an English speaker reading Italian. " +
+      (slow
+        ? "Speak slowly and very clearly, as to a beginner, with small pauses between phrases."
+        : "Speak at a natural conversational pace.");
+  }
+  const res = await fetch("https://api.openai.com/v1/audio/speech", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${o.key}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Speech ${res.status}: ${await res.text()}`);
+  return await res.blob();
+}

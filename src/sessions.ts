@@ -1,5 +1,5 @@
 import { store } from "./store";
-import type { SavedSession, Sentence } from "./types";
+import type { SavedSession, Sentence, Turn } from "./types";
 
 const KEY = "correctool.saved";
 const MAX_SAVED = 50;
@@ -12,10 +12,10 @@ export function loadSaved(): SavedSession[] {
   }
 }
 
-export function addSaved(sentences: Sentence[]): void {
+export function addSaved(sentences: Sentence[], extra: { title?: string; turns?: Turn[] } = {}): void {
   const existing = loadSaved();
   const id = Math.max(Date.now(), ...existing.map((s) => s.id + 1)); // always unique
-  const all = [{ id, date: new Date().toISOString(), sentences }, ...existing];
+  const all = [{ id, date: new Date().toISOString(), sentences, ...extra }, ...existing];
   store.set(KEY, JSON.stringify(all.slice(0, MAX_SAVED)));
 }
 
