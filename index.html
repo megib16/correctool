@@ -3,41 +3,105 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Correctool – transcription spike</title>
-    <style>
-      body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
-      label { display: block; font-weight: 600; margin-top: 1rem; }
-      input, select, textarea { width: 100%; box-sizing: border-box; padding: .5rem; font: inherit; }
-      textarea { min-height: 6rem; }
-      button { padding: .6rem 1.2rem; font: inherit; cursor: pointer; margin-top: 1rem; }
-      button.rec { background: #c62828; color: #fff; border: 0; border-radius: 6px; }
-      .take { border: 1px solid #ccc; border-radius: 6px; padding: .75rem; margin-top: 1rem; }
-      .take small { color: #666; }
-      .take p { font-size: 1.15rem; margin: .4rem 0 0; }
-      .err { color: #c62828; }
-    </style>
+    <title>Correctool</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
-    <h1>Correctool – transcription spike</h1>
-    <p>Goal: check whether OpenAI keeps your mistakes when transcribing. Say a deliberately wrong sentence (e.g. “il citta è bello”) and see what comes back.</p>
+    <div class="stripe" aria-hidden="true"></div>
+    <main>
+      <header class="hero">
+        <h1>Correct<span>ool</span></h1>
+        <p class="lead">Speak Italian out loud. We catch the slips as you go, then you review them at your own pace.</p>
+      </header>
 
-    <label for="key">OpenAI API key (stored only in this browser)</label>
-    <input id="key" type="password" placeholder="sk-..." autocomplete="off" />
+      <div class="stage">
+        <button id="rec" class="rec" type="button">Start speaking</button>
+        <div class="listen">
+          <div id="meter" aria-hidden="true"><div id="meter-bar"></div></div>
+          <span id="status"></span>
+        </div>
+      </div>
 
-    <label for="model">Model</label>
-    <select id="model">
-      <option>gpt-4o-transcribe</option>
-      <option>gpt-4o-mini-transcribe</option>
-      <option>whisper-1</option>
-    </select>
+      <section id="paper" class="paper" aria-live="polite"></section>
+      <p id="tip" class="tip"></p>
 
-    <label for="prompt">Verbatim prompt</label>
-    <textarea id="prompt"></textarea>
+      <section id="summary" hidden>
+        <details class="card">
+          <summary id="summary-title">All mistakes</summary>
+          <div id="summary-body"></div>
+        </details>
+      </section>
 
-    <button id="rec" class="rec">● Start recording</button>
-    <div id="status"></div>
-    <div id="takes"></div>
+      <section id="history" class="history" hidden>
+        <label for="past">Past sessions</label>
+        <select id="past"></select>
+      </section>
 
+      <details id="settings" class="card settings">
+        <summary>⚙ Settings</summary>
+        <label for="key">OpenAI API key <small>(stored only in this browser)</small></label>
+        <input id="key" type="password" placeholder="sk-..." autocomplete="off" />
+
+        <div class="row">
+          <div>
+            <label for="stt-model">Transcription model</label>
+            <select id="stt-model">
+              <option>gpt-4o-transcribe</option>
+              <option>gpt-4o-mini-transcribe</option>
+            </select>
+          </div>
+          <div>
+            <label for="fix-model">Correction model</label>
+            <input id="fix-model" list="fix-models" />
+            <datalist id="fix-models">
+              <option value="gpt-4o"></option>
+              <option value="gpt-4o-mini"></option>
+              <option value="gpt-4.1"></option>
+              <option value="gpt-4.1-mini"></option>
+            </datalist>
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="level">Your level</label>
+            <select id="level">
+              <option>A1</option>
+              <option>A2</option>
+              <option selected>B1</option>
+              <option>B2</option>
+              <option>C1</option>
+            </select>
+          </div>
+          <div>
+            <label for="explain">Explanations in</label>
+            <select id="explain">
+              <option value="English">English</option>
+              <option value="simple Italian">Simple Italian</option>
+            </select>
+          </div>
+        </div>
+
+        <label for="chunk">How often text appears while you talk</label>
+        <select id="chunk">
+          <option value="2500">Every ~2.5 seconds (fastest, may cut words)</option>
+          <option value="4500" selected>Every ~4.5 seconds</option>
+          <option value="7000">Every ~7 seconds (smoother, slower)</option>
+        </select>
+
+        <label for="prompt">Verbatim transcription prompt</label>
+        <textarea id="prompt"></textarea>
+      </details>
+
+      <p class="note-small">
+        Transcription may smooth over mistakes that sound alike (for example “ha” and “è”).
+      </p>
+    </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
