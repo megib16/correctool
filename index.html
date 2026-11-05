@@ -19,88 +19,114 @@
         <p class="lead">Speak Italian out loud. We catch the slips as you go, then you review them at your own pace.</p>
       </header>
 
-      <div class="stage">
-        <button id="rec" class="rec" type="button">Start speaking</button>
-        <div class="listen">
-          <div id="meter" aria-hidden="true"><div id="meter-bar"></div></div>
-          <span id="status"></span>
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="practice" type="button">Practice</button>
+        <button class="tab" data-tab="progress" type="button">My mistakes</button>
+        <button class="tab" data-tab="saved" type="button">Saved sessions</button>
+      </nav>
+
+      <!-- PRACTICE -->
+      <div class="panel" id="panel-practice">
+        <div class="stage">
+          <button id="rec" class="rec" type="button">Start speaking</button>
+          <div class="listen">
+            <div id="meter" aria-hidden="true"><div id="meter-bar"></div></div>
+            <span id="status"></span>
+          </div>
         </div>
+
+        <section id="paper" class="paper" aria-live="polite"></section>
+        <p id="tip" class="tip"></p>
+
+        <div id="save-bar" class="save-bar" hidden>
+          <button id="save-btn" class="btn" type="button">Save this session</button>
+          <span id="save-note"></span>
+        </div>
+
+        <section id="summary" hidden>
+          <details class="card">
+            <summary id="summary-title">All mistakes</summary>
+            <div id="summary-body"></div>
+          </details>
+        </section>
+
+        <details id="settings" class="card settings">
+          <summary>⚙ Settings</summary>
+          <label for="key">OpenAI API key <small>(stored only in this browser)</small></label>
+          <input id="key" type="password" placeholder="sk-..." autocomplete="off" />
+
+          <div class="row">
+            <div>
+              <label for="stt-model">Transcription model</label>
+              <select id="stt-model">
+                <option>gpt-4o-transcribe</option>
+                <option>gpt-4o-mini-transcribe</option>
+              </select>
+            </div>
+            <div>
+              <label for="fix-model">Correction model</label>
+              <input id="fix-model" list="fix-models" />
+              <datalist id="fix-models">
+                <option value="gpt-4o"></option>
+                <option value="gpt-4o-mini"></option>
+                <option value="gpt-4.1"></option>
+                <option value="gpt-4.1-mini"></option>
+              </datalist>
+            </div>
+          </div>
+
+          <div class="row">
+            <div>
+              <label for="level">Your level</label>
+              <select id="level">
+                <option>A1</option>
+                <option>A2</option>
+                <option selected>B1</option>
+                <option>B2</option>
+                <option>C1</option>
+              </select>
+            </div>
+            <div>
+              <label for="explain">Explanations in</label>
+              <select id="explain">
+                <option value="English">English</option>
+                <option value="simple Italian">Simple Italian</option>
+              </select>
+            </div>
+          </div>
+
+          <label for="chunk">How often text appears while you talk</label>
+          <select id="chunk">
+            <option value="2500">Every ~2.5 seconds (fastest, may cut words)</option>
+            <option value="4500" selected>Every ~4.5 seconds</option>
+            <option value="7000">Every ~7 seconds (smoother, slower)</option>
+          </select>
+
+          <label for="prompt">Verbatim transcription prompt</label>
+          <textarea id="prompt"></textarea>
+        </details>
+
+        <p class="note-small">
+          Transcription may smooth over mistakes that sound alike (for example “ha” and “è”).
+        </p>
       </div>
 
-      <section id="paper" class="paper" aria-live="polite"></section>
-      <p id="tip" class="tip"></p>
+      <!-- MY MISTAKES -->
+      <div class="panel" id="panel-progress" hidden>
+        <div id="progress-body"></div>
+      </div>
 
-      <section id="summary" hidden>
-        <details class="card">
-          <summary id="summary-title">All mistakes</summary>
-          <div id="summary-body"></div>
-        </details>
-      </section>
-
-      <section id="history" class="history" hidden>
-        <label for="past">Past sessions</label>
-        <select id="past"></select>
-      </section>
-
-      <details id="settings" class="card settings">
-        <summary>⚙ Settings</summary>
-        <label for="key">OpenAI API key <small>(stored only in this browser)</small></label>
-        <input id="key" type="password" placeholder="sk-..." autocomplete="off" />
-
-        <div class="row">
-          <div>
-            <label for="stt-model">Transcription model</label>
-            <select id="stt-model">
-              <option>gpt-4o-transcribe</option>
-              <option>gpt-4o-mini-transcribe</option>
-            </select>
-          </div>
-          <div>
-            <label for="fix-model">Correction model</label>
-            <input id="fix-model" list="fix-models" />
-            <datalist id="fix-models">
-              <option value="gpt-4o"></option>
-              <option value="gpt-4o-mini"></option>
-              <option value="gpt-4.1"></option>
-              <option value="gpt-4.1-mini"></option>
-            </datalist>
-          </div>
+      <!-- SAVED SESSIONS -->
+      <div class="panel" id="panel-saved" hidden>
+        <div id="saved-list"></div>
+        <div id="saved-view" hidden>
+          <button id="saved-back" class="btn" type="button">← All saved sessions</button>
+          <h2 id="saved-title"></h2>
+          <section id="saved-paper" class="paper"></section>
+          <p class="tip">Click an underlined mistake to see why, or ✎ for a more natural phrasing.</p>
+          <div id="saved-summary"></div>
         </div>
-
-        <div class="row">
-          <div>
-            <label for="level">Your level</label>
-            <select id="level">
-              <option>A1</option>
-              <option>A2</option>
-              <option selected>B1</option>
-              <option>B2</option>
-              <option>C1</option>
-            </select>
-          </div>
-          <div>
-            <label for="explain">Explanations in</label>
-            <select id="explain">
-              <option value="English">English</option>
-              <option value="simple Italian">Simple Italian</option>
-            </select>
-          </div>
-        </div>
-
-        <label for="chunk">How often text appears while you talk</label>
-        <select id="chunk">
-          <option value="2500">Every ~2.5 seconds (fastest, may cut words)</option>
-          <option value="4500" selected>Every ~4.5 seconds</option>
-          <option value="7000">Every ~7 seconds (smoother, slower)</option>
-        </select>
-
-        <label for="prompt">Verbatim transcription prompt</label>
-        <textarea id="prompt"></textarea>
-      </details>
-
-      <p class="note-small">
-        Transcription may smooth over mistakes that sound alike (for example “ha” and “è”).
-      </p>
+      </div>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

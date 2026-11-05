@@ -1,7 +1,12 @@
 import "./style.css";
 import { correct, transcribe } from "./openai";
+import { buildProgress } from "./progress";
 import { el, errorRow, highlight } from "./render";
+import { addSaved, deleteSaved, loadSaved } from "./sessions";
+import { loadStats, recordSession, resetStats } from "./stats";
+import { store } from "./store";
 import { PauseTranscriber } from "./transcriber";
+import { TYPE_LABELS } from "./types";
 import type { GrammarError, SavedSession, Sentence } from "./types";
 
 const DEFAULT_PROMPT =
@@ -29,19 +34,17 @@ const tipEl = $("tip");
 const summaryEl = $("summary");
 const summaryTitle = $("summary-title");
 const summaryBody = $("summary-body");
-const historyEl = $("history");
-const pastEl = $<HTMLSelectElement>("past");
+const saveBar = $("save-bar");
+const saveBtn = $<HTMLButtonElement>("save-btn");
+const saveNote = $("save-note");
+const progressBody = $("progress-body");
+const savedList = $("saved-list");
+const savedView = $("saved-view");
+const savedTitle = $("saved-title");
+const savedPaper = $("saved-paper");
+const savedSummary = $("saved-summary");
 
-// ---------- settings (browser storage is optional: everything works without it) ----------
-const store = {
-  get(k: string): string | null {
-    try { return localStorage.getItem(k); } catch { return null; }
-  },
-  set(k: string, v: string) {
-    try { localStorage.setItem(k, v); } catch { /* storage unavailable */ }
-  },
-};
-
+// ---------- settings ----------
 const fields: [HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement, string, string][] = [
   [keyEl, "key", ""],
   [sttEl, "stt", "gpt-4o-transcribe"],
@@ -57,32 +60,45 @@ for (const [elem, name, def] of fields) {
 }
 
 // ---------- state ----------
-// Each Sentence is really one chunk of speech between pauses. They are shown as one paragraph.
+// Each Sentence is really one chunk of speech. Chunks are shown together as one paragraph.
 let segs: Sentence[] = [];
-let interactive = false; // true once you are done: underlined mistakes become clickable
 const pending = new Set<Promise<void>>();
 let transcriber: PauseTranscriber | null = null;
 let nextId = 0;
+let lastSession: Sentence[] | null = null; // the finished session, offered for saving
+
+// ---------- tabs ----------
+type Tab = "practice" | "progress" | "saved";
+function showTab(tab: Tab) {
+  closePopover();
+  document.querySelectorAll<HTMLElement>(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  (["practice", "progress", "saved"] as Tab[]).forEach((t) => ($(`panel-${t}`).hidden = t !== tab));
+  if (tab === "progress") renderProgress();
+  if (tab === "saved") renderSavedList();
+}
+document.querySelectorAll<HTMLElement>(".tab").forEach((b) =>
+  b.addEventListener("click", () => showTab(b.dataset.tab as Tab)),
+);
 
 // ---------- the paragraph ----------
-function renderPaper() {
-  paperEl.replaceChildren();
-  const pick = interactive ? showError : undefined;
-  segs.forEach((s, i) => {
-    if (i) paperEl.append(" ");
+function renderPaper(target: HTMLElement, list: Sentence[], clickable: boolean) {
+  target.replaceChildren();
+  list.forEach((s, i) => {
+    if (i) target.append(" ");
     if (s.status === "transcribing") {
-      paperEl.append(el("span", "pending", "…"));
+      target.append(el("span", "pending", "…"));
       return;
     }
+    const pick = clickable ? (err: GrammarError, span: HTMLElement) => showError(err, span, s) : undefined;
     const wrap = el("span", s.status === "checking" ? "checking" : "");
     wrap.append(s.correction ? highlight(s.text, s.correction.errors, pick) : s.text);
-    paperEl.append(wrap);
+    target.append(wrap);
     if (s.status === "failed") {
       const warn = el("span", "warn", " ⚠");
       warn.title = s.failure ?? "Something went wrong.";
-      paperEl.append(warn);
+      target.append(warn);
     }
-    if (interactive && s.correction?.suggestion) {
+    if (clickable && s.correction?.suggestion) {
       const btn = el("button", "hintbtn", "✎");
       btn.type = "button";
       btn.title = "A more natural way to say this";
@@ -90,10 +106,11 @@ function renderPaper() {
         ev.stopPropagation();
         showSuggestion(s, btn);
       });
-      paperEl.append(btn);
+      target.append(btn);
     }
   });
 }
+const renderLive = () => renderPaper(paperEl, segs, false);
 
 // ---------- popover with the explanation ----------
 const pop = el("div", "popover");
@@ -115,14 +132,13 @@ function closePopover() {
   activeSpan = null;
 }
 
-function showError(err: GrammarError, span: HTMLElement) {
+function showError(err: GrammarError, span: HTMLElement, s: Sentence) {
   closePopover();
   activeSpan = span;
   span.classList.add("active");
-  const owner = segs.find((s) => s.correction?.errors.includes(err));
   pop.replaceChildren(errorRow(err));
-  if (owner?.correction && owner.correction.corrected !== owner.text) {
-    pop.append(el("div", "fixed", `Corrected: ${owner.correction.corrected}`));
+  if (s.correction && s.correction.corrected !== s.text) {
+    pop.append(el("div", "fixed", `Corrected: ${s.correction.corrected}`));
   }
   placePopover(span);
 }
@@ -147,7 +163,7 @@ document.addEventListener("keydown", (ev) => {
 async function handleSegment(wav: Blob) {
   const s: Sentence = { id: nextId++, text: "", status: "transcribing" };
   segs.push(s);
-  renderPaper();
+  renderLive();
   const key = keyEl.value.trim();
   const prompt = promptEl.value;
   try {
@@ -155,11 +171,11 @@ async function handleSegment(wav: Blob) {
     // Drop empty results, hesitation-only chunks, and the model echoing our prompt on near-silence.
     if (!text || FILLER_ONLY.test(text) || (text.length >= 20 && prompt.includes(text))) {
       segs = segs.filter((x) => x !== s);
-      return renderPaper();
+      return renderLive();
     }
     s.text = text;
     s.status = "checking";
-    renderPaper();
+    renderLive();
     const context = segs
       .filter((x) => x.id < s.id && x.text)
       .slice(-3)
@@ -175,7 +191,7 @@ async function handleSegment(wav: Blob) {
     s.status = "failed";
     s.failure = err instanceof Error ? err.message : String(err);
   }
-  renderPaper();
+  renderLive();
 }
 
 function track(wav: Blob) {
@@ -192,10 +208,11 @@ async function start() {
   }
   closePopover();
   segs = [];
-  interactive = false;
+  lastSession = null;
   tipEl.textContent = "";
   summaryEl.hidden = true;
-  renderPaper();
+  saveBar.hidden = true;
+  renderLive();
   try {
     transcriber = new PauseTranscriber(
       track,
@@ -223,9 +240,24 @@ async function stop() {
   transcriber = null;
   paperEl.classList.remove("speaking");
   await Promise.allSettled([...pending]);
+
   const done = segs.filter((s) => s.text);
-  if (done.length) saveSession(done);
-  showReview(done);
+  segs = done;
+  renderPaper(paperEl, done, true);
+  describeReview(done);
+
+  // The session itself is not kept unless the user chooses to. Only anonymous totals go to "My mistakes".
+  lastSession = done.length ? done : null;
+  if (done.some((s) => s.correction)) {
+    recordSession(done);
+    saveNote.textContent = "Added to My mistakes.";
+  } else {
+    saveNote.textContent = "";
+  }
+  saveBar.hidden = !lastSession;
+  saveBtn.disabled = false;
+  saveBtn.textContent = "Save this session";
+
   recBtn.textContent = "Start speaking";
   recBtn.classList.remove("live");
   recBtn.disabled = false;
@@ -234,72 +266,114 @@ async function stop() {
 
 recBtn.addEventListener("click", () => (transcriber ? stop() : start()));
 
+saveBtn.addEventListener("click", () => {
+  if (!lastSession) return;
+  addSaved(lastSession);
+  saveBtn.disabled = true;
+  saveBtn.textContent = "Saved ✓";
+});
+
 // ---------- review ----------
-function showReview(list: Sentence[]) {
-  closePopover();
-  segs = list;
-  interactive = true;
-  renderPaper();
-  summaryBody.replaceChildren();
-
-  if (!list.length) {
-    tipEl.textContent = "No speech was captured.";
-    summaryEl.hidden = true;
-    return;
-  }
+function buildSummary(list: Sentence[]): { root: HTMLElement; count: number } {
   const all = list.flatMap((s) => (s.correction?.errors ?? []).map((e) => ({ e, s })));
-  const tips = list.filter((s) => s.correction?.suggestion).length;
-  tipEl.textContent = all.length
-    ? `Click an underlined mistake to see why${tips ? ", or ✎ for a more natural phrasing" : ""}.`
-    : tips
-      ? "No mistakes found. Click ✎ for a more natural phrasing."
-      : "No mistakes found. Nice!";
-
-  summaryEl.hidden = all.length === 0;
-  summaryTitle.textContent = `All mistakes (${all.length})`;
+  const root = el("div");
   const groups = new Map<string, typeof all>();
   for (const item of all) groups.set(item.e.type, [...(groups.get(item.e.type) ?? []), item]);
   for (const [type, items] of [...groups].sort((a, b) => b[1].length - a[1].length)) {
     const g = el("div", "group");
-    g.append(el("h3", "", `${type} (${items.length})`));
+    g.append(el("h3", "", `${TYPE_LABELS[type as keyof typeof TYPE_LABELS] ?? type} (${items.length})`));
     for (const { e, s } of items) {
       const row = errorRow(e);
       row.append(el("div", "src", `“${s.text}”`));
       g.append(row);
     }
-    summaryBody.append(g);
+    root.append(g);
   }
+  return { root, count: all.length };
+}
+
+function describeReview(list: Sentence[]) {
+  summaryBody.replaceChildren();
+  if (!list.length) {
+    tipEl.textContent = "No speech was captured.";
+    summaryEl.hidden = true;
+    return;
+  }
+  const { root, count } = buildSummary(list);
+  const tips = list.filter((s) => s.correction?.suggestion).length;
+  tipEl.textContent = count
+    ? `Click an underlined mistake to see why${tips ? ", or ✎ for a more natural phrasing" : ""}.`
+    : tips
+      ? "No mistakes found. Click ✎ for a more natural phrasing."
+      : "No mistakes found. Nice!";
+  summaryEl.hidden = count === 0;
+  summaryTitle.textContent = `All mistakes (${count})`;
+  summaryBody.append(root);
+}
+
+// ---------- my mistakes ----------
+function renderProgress() {
+  progressBody.replaceChildren(
+    buildProgress(loadStats(), () => {
+      resetStats();
+      renderProgress();
+    }),
+  );
 }
 
 // ---------- saved sessions ----------
-function loadSessions(): SavedSession[] {
-  try {
-    return JSON.parse(store.get("correctool.sessions") ?? "[]") as SavedSession[];
-  } catch {
-    return [];
+function renderSavedList() {
+  savedView.hidden = true;
+  savedList.hidden = false;
+  savedList.replaceChildren();
+  const items = loadSaved();
+  if (!items.length) {
+    savedList.append(el("p", "empty", "Nothing saved yet. After a practice session, choose “Save this session” to keep it here."));
+    return;
+  }
+  for (const s of items) savedList.append(savedItem(s));
+}
+
+function savedItem(s: SavedSession): HTMLElement {
+  const row = el("div", "saved-item");
+  const info = el("div", "info");
+  const mistakes = s.sentences.reduce((n, c) => n + (c.correction?.errors.length ?? 0), 0);
+  info.append(
+    el("div", "when", new Date(s.date).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })),
+    el("div", "preview", s.sentences.map((c) => c.text).join(" ")),
+    el("div", "meta", `${mistakes} mistake${mistakes === 1 ? "" : "s"}`),
+  );
+  const open = el("button", "btn", "Open");
+  open.type = "button";
+  open.addEventListener("click", () => openSaved(s));
+  const del = el("button", "btn danger", "Delete");
+  del.type = "button";
+  del.addEventListener("click", () => {
+    if (confirm("Delete this saved session?")) {
+      deleteSaved(s.id);
+      renderSavedList();
+    }
+  });
+  const actions = el("div", "actions");
+  actions.append(open, del);
+  row.append(info, actions);
+  return row;
+}
+
+function openSaved(s: SavedSession) {
+  closePopover();
+  savedList.hidden = true;
+  savedView.hidden = false;
+  savedTitle.textContent = new Date(s.date).toLocaleString([], { dateStyle: "full", timeStyle: "short" });
+  renderPaper(savedPaper, s.sentences, true);
+  const { root, count } = buildSummary(s.sentences);
+  savedSummary.replaceChildren();
+  if (count) {
+    savedSummary.append(el("h3", "", `All mistakes (${count})`), root);
   }
 }
 
-function saveSession(list: Sentence[]) {
-  const sessions = loadSessions();
-  sessions.unshift({ id: Date.now(), date: new Date().toISOString(), sentences: list });
-  store.set("correctool.sessions", JSON.stringify(sessions.slice(0, 30)));
-  renderHistory();
-}
-
-function renderHistory() {
-  const sessions = loadSessions();
-  historyEl.hidden = sessions.length === 0;
-  pastEl.replaceChildren(new Option("Choose a session…", ""));
-  for (const s of sessions) {
-    const label = `${new Date(s.date).toLocaleString()} · ${s.sentences.length} chunks`;
-    pastEl.append(new Option(label, String(s.id)));
-  }
-}
-
-pastEl.addEventListener("change", () => {
-  const found = loadSessions().find((s) => String(s.id) === pastEl.value);
-  if (found && !transcriber) showReview(found.sentences);
+$("saved-back").addEventListener("click", () => {
+  closePopover();
+  renderSavedList();
 });
-
-renderHistory();

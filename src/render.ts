@@ -1,3 +1,4 @@
+import { TYPE_LABELS } from "./types";
 import type { GrammarError } from "./types";
 
 export function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = ""): HTMLElementTagNameMap[K] {
@@ -70,7 +71,7 @@ export function highlight(text: string, errors: GrammarError[], onPick?: PickHan
 
 export function errorRow(e: GrammarError): HTMLElement {
   const row = el("div", "note");
-  row.append(el("span", "wrong", e.wrong), " → ", el("strong", "right", e.right), " ", el("span", "tag", e.type));
+  row.append(el("span", "wrong", e.wrong), " → ", el("strong", "right", e.right), " ", el("span", "tag", TYPE_LABELS[e.type] ?? e.type));
   row.append(el("div", "why", e.explanation));
   return row;
 }
