@@ -6,7 +6,7 @@ export interface ChatOptions {
   /** Learner mistakes become clickable (used once the conversation is over). */
   interactive: boolean;
   /** Adds a "Listen" button to the other speaker's bubbles. */
-  onReplay?: (text: string) => void;
+  onReplay?: (turn: Turn) => void;
   /** Scrolls the latest bubble into view. */
   scroll?: boolean;
 }
@@ -23,7 +23,7 @@ export function renderConversation(target: HTMLElement, turns: Turn[], opts: Cha
       if (opts.onReplay) {
         const listen = el("button", "replay", "▶ Listen");
         listen.type = "button";
-        listen.addEventListener("click", () => opts.onReplay!(t.text));
+        listen.addEventListener("click", () => opts.onReplay!(t));
         bubble.append(listen);
       }
     } else {

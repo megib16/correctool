@@ -21,7 +21,10 @@ const fields: [Field, string, string][] = [
   [$("sentence-pause"), "sentence-pause", "2500"],
   [$("turn-silence"), "turn-silence", "4000"],
   [$("tts-model"), "tts-model", "gpt-4o-mini-tts"],
-  [$("tts-voice"), "tts-voice", "nova"],
+  [$("tts-voice-f"), "tts-voice-f", "nova"],
+  [$("tts-voice-m"), "tts-voice-m", "onyx"],
+  [$("ambient-mode"), "ambient-mode", "while-speaking"],
+  [$("rp-ambient-level"), "ambient-level", "medium"],
   [$("prompt"), "prompt.v2", DEFAULT_PROMPT],
 ];
 for (const [elem, name, def] of fields) {
@@ -46,7 +49,10 @@ export interface Settings {
   debugAudio: boolean; // keep the audio clips so they can be played back
   turnSilenceMs: number; // 0 = never end a turn automatically
   ttsModel: string;
-  ttsVoice: string;
+  ttsVoiceF: string; // voice for female characters
+  ttsVoiceM: string; // voice for male characters
+  ambientLevel: "low" | "medium" | "high";
+  ambientMode: "while-speaking" | "always";
 }
 
 export function getSettings(): Settings {
@@ -62,7 +68,10 @@ export function getSettings(): Settings {
     debugAudio: debugEl.checked,
     turnSilenceMs: Number($<HTMLSelectElement>("turn-silence").value),
     ttsModel: $<HTMLInputElement>("tts-model").value.trim(),
-    ttsVoice: $<HTMLSelectElement>("tts-voice").value,
+    ttsVoiceF: $<HTMLSelectElement>("tts-voice-f").value,
+    ttsVoiceM: $<HTMLSelectElement>("tts-voice-m").value,
+    ambientLevel: $<HTMLSelectElement>("rp-ambient-level").value as Settings["ambientLevel"],
+    ambientMode: $<HTMLSelectElement>("ambient-mode").value as Settings["ambientMode"],
   };
 }
 
@@ -84,3 +93,7 @@ export function setLevel(l: Level) {
 // ---------- spoken replies on/off ----------
 export const getSpeak = () => store.get("correctool.speak") !== "0";
 export const setSpeak = (on: boolean) => store.set("correctool.speak", on ? "1" : "0");
+
+// ---------- background sound on/off ----------
+export const getAmbientOn = () => store.get("correctool.ambient") === "1";
+export const setAmbientOn = (on: boolean) => store.set("correctool.ambient", on ? "1" : "0");

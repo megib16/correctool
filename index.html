@@ -123,37 +123,60 @@
             <option value="0">Never (only the Next button)</option>
           </select>
 
+          <label for="tts-model">Role-play voice model</label>
+          <input id="tts-model" list="tts-models" />
+          <datalist id="tts-models">
+            <option value="gpt-4o-mini-tts"></option>
+            <option value="tts-1"></option>
+            <option value="tts-1-hd"></option>
+          </datalist>
+
           <div class="row">
             <div>
-              <label for="tts-model">Role-play voice model</label>
-              <input id="tts-model" list="tts-models" />
-              <datalist id="tts-models">
-                <option value="gpt-4o-mini-tts"></option>
-                <option value="tts-1"></option>
-                <option value="tts-1-hd"></option>
-              </datalist>
-            </div>
-            <div>
-              <label for="tts-voice">Voice</label>
-              <select id="tts-voice">
+              <label for="tts-voice-f">Voice for women characters</label>
+              <select id="tts-voice-f">
                 <option>alloy</option>
                 <option>ash</option>
                 <option>ballad</option>
                 <option>coral</option>
                 <option>echo</option>
                 <option>fable</option>
-                <option selected>nova</option>
+                <option>nova</option>
                 <option>onyx</option>
                 <option>sage</option>
                 <option>shimmer</option>
                 <option>verse</option>
               </select>
+              <button id="tts-test-f" class="btn small" type="button">▶ Test</button>
+            </div>
+            <div>
+              <label for="tts-voice-m">Voice for men characters</label>
+              <select id="tts-voice-m">
+                <option>alloy</option>
+                <option>ash</option>
+                <option>ballad</option>
+                <option>coral</option>
+                <option>echo</option>
+                <option>fable</option>
+                <option>nova</option>
+                <option>onyx</option>
+                <option>sage</option>
+                <option>shimmer</option>
+                <option>verse</option>
+              </select>
+              <button id="tts-test-m" class="btn small" type="button">▶ Test</button>
             </div>
           </div>
-          <div class="voice-test">
-            <button id="tts-test" class="btn" type="button">▶ Test voice</button>
+          <p class="hint">
+            My best guess: women alloy, coral, nova, sage, shimmer; men ash, ballad, echo, fable, onyx, verse. Use Test to hear them.
             <span id="tts-test-note"></span>
-          </div>
+          </p>
+
+          <label for="ambient-mode">Role-play background noise plays</label>
+          <select id="ambient-mode">
+            <option value="while-speaking" selected>Only while the other person is talking (fine on speakers)</option>
+            <option value="always">All the time (use headphones)</option>
+          </select>
 
           <label class="check">
             <input type="checkbox" id="debug-audio" />
@@ -174,6 +197,15 @@
         <div id="rp-picker">
           <p class="rp-intro">Pick a situation. The AI plays the other person, in Italian, and ends the conversation when it's done.</p>
           <p id="rp-msg" class="rp-msg"></p>
+          <div class="ambient-row">
+            <label class="switch"><input type="checkbox" id="rp-ambient-picker" /> Background noise</label>
+            <select id="rp-ambient-level" aria-label="Noise level">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High (hard)</option>
+            </select>
+            <span class="hint" id="rp-ambient-hint">Café chatter, traffic… for a more realistic, harder listening test. Needs recordings in public/ambient/.</span>
+          </div>
           <div id="rp-scenarios" class="scenarios"></div>
         </div>
 
@@ -191,6 +223,8 @@
           <div id="rp-controls" class="rp-controls">
             <div class="meter" aria-hidden="true"><div id="rp-meter-bar" class="meter-bar"></div></div>
             <span id="rp-status" class="rp-status"></span>
+            <span id="rp-ambient-note" class="hint"></span>
+            <label class="switch"><input type="checkbox" id="rp-ambient" /> Noise</label>
             <label class="switch"><input type="checkbox" id="rp-voice" /> Voice</label>
             <button id="rp-next" class="btn primary" type="button" disabled>Next →</button>
           </div>

@@ -289,28 +289,34 @@ $("saved-back").addEventListener("click", () => {
   renderSavedList();
 });
 
-// ---------- settings: audition the voice ----------
-$("tts-test").addEventListener("click", async () => {
-  const note = $("tts-test-note");
-  const st = getSettings();
-  if (!st.key) {
-    note.textContent = "Add your API key first.";
-    return;
-  }
-  note.textContent = "Loading…";
-  try {
-    const blob = await speak("Ciao! Mi chiamo Giulia. Come stai oggi? Raccontami un po' della tua giornata.", {
-      key: st.key,
-      model: st.ttsModel,
-      voice: st.ttsVoice,
-      level: st.level,
-    });
-    const url = URL.createObjectURL(blob);
-    const a = new Audio(url);
-    a.onended = () => URL.revokeObjectURL(url);
-    await a.play();
-    note.textContent = "";
-  } catch (err) {
-    note.textContent = err instanceof Error ? err.message.slice(0, 120) : String(err);
-  }
-});
+// ---------- settings: audition the voices ----------
+function auditionVoice(buttonId: string, gender: "f" | "m") {
+  $(buttonId).addEventListener("click", async () => {
+    const note = $("tts-test-note");
+    const st = getSettings();
+    if (!st.key) {
+      note.textContent = "Add your API key first.";
+      return;
+    }
+    note.textContent = "Loading…";
+    try {
+      const name = gender === "m" ? "Marco" : "Giulia";
+      const blob = await speak(`Ciao! Mi chiamo ${name}. Come stai oggi? Raccontami un po' della tua giornata.`, {
+        key: st.key,
+        model: st.ttsModel,
+        voice: gender === "m" ? st.ttsVoiceM : st.ttsVoiceF,
+        level: st.level,
+        style: gender === "m" ? "a friendly young Italian man" : "a friendly young Italian woman",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = new Audio(url);
+      a.onended = () => URL.revokeObjectURL(url);
+      await a.play();
+      note.textContent = "";
+    } catch (err) {
+      note.textContent = err instanceof Error ? err.message.slice(0, 120) : String(err);
+    }
+  });
+}
+auditionVoice("tts-test-f", "f");
+auditionVoice("tts-test-m", "m");

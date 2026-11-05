@@ -47,6 +47,8 @@ export interface Sentence {
 export interface Turn {
   role: "ai" | "user";
   text: string;
+  /** For the other speaker's lines: how the line should sound, e.g. "warm and amused". */
+  tone?: string;
   /** For the learner's turns: the chunks of speech, with their corrections. */
   segments?: Sentence[];
 }

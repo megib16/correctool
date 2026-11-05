@@ -204,3 +204,9 @@ textarea { min-height: 7rem; }
 .voice-test { display: flex; align-items: center; gap: .8rem; margin-top: .8rem; color: var(--muted); font-size: .85rem; }
 label.check { display: flex; align-items: flex-start; gap: .6rem; font-weight: 400; font-size: .9rem; margin-top: 1.2rem; cursor: pointer; }
 label.check input { width: auto; margin-top: .25rem; }
+
+/* role-play: background noise + voices */
+.ambient-row { display: flex; align-items: center; justify-content: center; gap: .8rem; flex-wrap: wrap; margin: 0 auto 1.2rem; }
+.ambient-row select { width: auto; }
+.hint { color: var(--muted); font-size: .85rem; }
+.btn.small { padding: .3rem .8rem; font-size: .85rem; margin-top: .5rem; }

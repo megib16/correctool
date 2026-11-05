@@ -1,12 +1,16 @@
+import { Ambient, NoRecordingError, hasRecording } from "./ambient";
+import type { AmbientKind } from "./ambient";
 import { renderConversation } from "./chat";
 import { converse, speak } from "./openai";
+import type { Character } from "./openai";
 import { closePopover } from "./paper";
 import { processChunk } from "./pipeline";
 import { el } from "./render";
 import { MAX_TURNS, SCENARIOS } from "./scenarios";
 import type { Scenario } from "./scenarios";
 import { addSaved } from "./sessions";
-import { getLevel, getSettings, getSpeak, setSpeak } from "./settings";
+import { getAmbientOn, getLevel, getSettings, getSpeak, setAmbientOn, setSpeak } from "./settings";
+import type { Settings } from "./settings";
 import { recordSession } from "./stats";
 import { buildSummary } from "./summary";
 import { PauseTranscriber } from "./transcriber";
@@ -36,12 +40,16 @@ const summaryWrap = $("rp-summary");
 const summaryTitle = $("rp-summary-title");
 const summaryBody = $("rp-summary-body");
 const newBtn = $<HTMLButtonElement>("rp-new");
+const ambientPicker = $<HTMLInputElement>("rp-ambient-picker");
+const ambientChat = $<HTMLInputElement>("rp-ambient");
+const ambientLevelEl = $<HTMLSelectElement>("rp-ambient-level");
 
 type Phase = "idle" | "ai" | "user" | "processing" | "ended";
 
 let phase: Phase = "idle";
 let runId = 0; // bumped whenever a conversation starts or is ended, so stale async work can bail out
 let scenario: Scenario | null = null;
+let character: Character | null = null; // who the other person is today: personality, mood, what is going on
 let turns: Turn[] = [];
 let current: Turn | null = null; // the learner's turn in progress
 let userTurns = 0;
@@ -59,12 +67,89 @@ let finished: Sentence[] = [];
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const setStatus = (t: string) => (statusEl.textContent = t);
+const MOODS = [
+  "cheerful and relaxed",
+  "in a bit of a hurry",
+  "chatty and curious",
+  "a little tired but friendly",
+  "playful and teasing",
+  "calm and attentive",
+];
+const pick = <T,>(items: T[]): T => items[Math.floor(Math.random() * items.length)];
+
+const ambient = new Ambient();
+const ambientNote = $("rp-ambient-note");
+const ambientHint = $("rp-ambient-hint");
+const KIND_NAMES: Record<AmbientKind, string> = { cafe: "café / restaurant", market: "market", street: "street", indoor: "indoors" };
+
+/** Tells the user which scenes have a background recording ready. */
+async function refreshAmbientHint() {
+  const kinds = [...new Set(SCENARIOS[getLevel()].map((sc) => sc.ambient))];
+  const found: AmbientKind[] = [];
+  for (const k of kinds) if (await hasRecording(k)) found.push(k);
+  ambientHint.textContent = found.length
+    ? `Recordings found for: ${found.map((k) => KIND_NAMES[k]).join(", ")}. Headphones recommended.`
+    : "No recordings yet. Add some to public/ambient/ (see the README there). Headphones recommended.";
+}
+
+/** Tells the AI who it is, so its name and grammar match the voice that will speak. */
+function personaText(sc: Scenario): string {
+  const man = sc.persona.gender === "m";
+  return (
+    `Your name is ${sc.persona.name} and you are a ${man ? "man" : "woman"}. If you introduce yourself or talk about yourself, ` +
+    `use this name and the matching Italian grammar (for example ${man ? '"sono stanco", "sono contento"' : '"sono stanca", "sono contenta"'}).`
+  );
+}
+
+const voiceFor = (sc: Scenario | null, st: Settings) => (sc?.persona.gender === "m" ? st.ttsVoiceM : st.ttsVoiceF);
+
+/** Background sound: audible all the time, or only while the other person is talking, depending on the setting. */
+function syncAmbient(aiSpeaking: boolean) {
+  const st = getSettings();
+  ambient.setLevel(st.ambientLevel);
+  ambient.setActive(getAmbientOn() && (st.ambientMode === "always" || aiSpeaking));
+}
+
+async function startAmbient(id: number) {
+  if (!scenario) return;
+  try {
+    await ambient.start(scenario.ambient, getSettings().ambientLevel);
+    if (id !== runId) {
+      ambient.stop();
+      return;
+    }
+    ambientNote.textContent = "";
+    syncAmbient(!!audio);
+  } catch (err) {
+    // carry on without background noise
+    ambientNote.textContent =
+      err instanceof NoRecordingError ? "No background recording for this scene yet (see public/ambient/)." : "Background sound unavailable.";
+  }
+}
+
+function applyAmbientToggle(on: boolean) {
+  setAmbientOn(on);
+  ambientPicker.checked = on;
+  ambientChat.checked = on;
+  if (phase === "idle" || phase === "ended") return;
+  if (on) void startAmbient(runId);
+  else ambient.stop();
+}
+ambientPicker.checked = ambientChat.checked = getAmbientOn();
+ambientPicker.addEventListener("change", () => {
+  applyAmbientToggle(ambientPicker.checked);
+  if (ambientPicker.checked) void refreshAmbientHint();
+});
+ambientChat.addEventListener("change", () => applyAmbientToggle(ambientChat.checked));
+ambientLevelEl.addEventListener("change", () => syncAmbient(!!audio));
+
 const lockLevel = (on: boolean) =>
   document.querySelectorAll<HTMLButtonElement>(".lvl").forEach((b) => (b.disabled = on));
 
 // ---------- picking a scenario ----------
 export function renderScenarios() {
   if (phase !== "idle") return; // never disturb a running conversation or its review
+  if (getAmbientOn()) void refreshAmbientHint();
   scenariosEl.replaceChildren();
   for (const sc of SCENARIOS[getLevel()]) {
     const card = el("button", "scenario-card");
@@ -89,6 +174,8 @@ async function start(sc: Scenario) {
   }
   const id = ++runId;
   scenario = sc;
+  character = { personality: sc.personality, mood: pick(MOODS), twist: pick(sc.twists) };
+  ambientNote.textContent = "";
   turns = [];
   current = null;
   userTurns = 0;
@@ -114,6 +201,7 @@ async function start(sc: Scenario) {
   voiceBox.checked = getSpeak();
   lockLevel(true);
   renderLog();
+  if (getAmbientOn()) void startAmbient(id);
   await aiTurn(id);
 }
 
@@ -127,14 +215,14 @@ async function aiTurn(id: number) {
   try {
     const r = await converse(
       turns.map(({ role, text }) => ({ role, text })),
-      { key: st.key, model: st.fixModel, level: st.level, setup: scenario!.setup, userTurns, maxTurns: max },
+      { key: st.key, model: st.fixModel, level: st.level, setup: scenario!.setup, persona: personaText(scenario!), character: character ?? undefined, userTurns, maxTurns: max },
     );
     if (id !== runId) return;
-    turns.push({ role: "ai", text: r.reply });
+    turns.push({ role: "ai", text: r.reply, tone: r.tone });
     renderLog();
     const last = (r.end && userTurns > 0) || userTurns >= max;
     if (getSpeak()) {
-      await playText(r.reply, id);
+      await playText(r.reply, id, r.tone);
       if (id !== runId) return;
       await sleep(250); // let the room go quiet before the mic opens
       if (id !== runId) return;
@@ -162,14 +250,22 @@ function showRetry(err: unknown, id: number) {
 }
 
 // ---------- spoken replies ----------
-async function playText(text: string, id: number) {
+async function playText(text: string, id: number, tone?: string) {
   const st = getSettings();
   try {
     setStatus("Speaking…");
-    const cacheKey = `${st.ttsModel}|${st.ttsVoice}|${st.level}|${text}`;
+    const voice = voiceFor(scenario, st);
+    const cacheKey = `${st.ttsModel}|${voice}|${st.level}|${tone ?? ""}|${text}`;
     let blob = voiceCache.get(cacheKey);
     if (!blob) {
-      blob = await speak(text, { key: st.key, model: st.ttsModel, voice: st.ttsVoice, level: st.level });
+      blob = await speak(text, {
+        key: st.key,
+        model: st.ttsModel,
+        voice,
+        level: st.level,
+        style: scenario?.voiceStyle,
+        tone,
+      });
       voiceCache.set(cacheKey, blob);
     }
     if (id !== runId) return;
@@ -177,6 +273,7 @@ async function playText(text: string, id: number) {
     const a = new Audio(url);
     audio = a;
     updateControls();
+    syncAmbient(true);
     await new Promise<void>((resolve) => {
       stopAudio = resolve;
       a.onended = () => resolve();
@@ -192,16 +289,17 @@ async function playText(text: string, id: number) {
     audio = null;
     stopAudio = null;
     updateControls();
+    syncAmbient(false);
   }
 }
 
 /** The "Listen" button on a bubble. The mic is muted while it plays. */
-async function replay(text: string) {
+async function replay(turn: Turn) {
   if (audio) return;
   const id = runId;
   const wasUser = phase === "user";
   if (wasUser) transcriber?.setPaused(true);
-  await playText(text, id);
+  await playText(turn.text, id, turn.tone);
   if (wasUser && phase === "user" && id === runId) {
     transcriber?.setPaused(false);
     setStatus(userPrompt());
@@ -373,6 +471,7 @@ async function finish(id: number) {
   window.clearInterval(timer);
   await transcriber?.stop();
   transcriber = null;
+  ambient.stop();
   lockLevel(false);
   setStatus("");
   controlsEl.hidden = true;

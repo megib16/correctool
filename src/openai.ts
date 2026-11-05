@@ -118,13 +118,27 @@ export interface ChatTurn {
   text: string;
 }
 
+export interface Character {
+  personality: string; // what the character is like
+  mood: string; // today's mood
+  twist: string; // something going on today
+}
+
 export interface ConverseOptions {
   key: string;
   model: string;
   level: string;
   setup: string; // who the AI is and the situation
+  persona?: string; // the AI's name and gender, so it stays consistent with the voice
+  character?: Character;
   userTurns: number; // how many times the learner has spoken so far
   maxTurns: number; // the conversation must be over by this many learner turns
+}
+
+export interface Reply {
+  reply: string;
+  tone: string; // how the line should sound, passed on to the voice
+  end: boolean;
 }
 
 const LEVEL_GUIDE: Record<string, { style: string; length: string }> = {
@@ -138,44 +152,63 @@ const LEVEL_GUIDE: Record<string, { style: string; length: string }> = {
 const REPLY_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["reply", "end"],
-  properties: { reply: { type: "string" }, end: { type: "boolean" } },
+  required: ["reply", "tone", "end"],
+  properties: { reply: { type: "string" }, tone: { type: "string" }, end: { type: "boolean" } },
 } as const;
 
-export async function converse(history: ChatTurn[], o: ConverseOptions): Promise<{ reply: string; end: boolean }> {
-  const g = LEVEL_GUIDE[o.level] ?? LEVEL_GUIDE.B1;
-  const lastExchange = o.userTurns >= o.maxTurns - 1;
-  const system = `You are playing a role in a spoken Italian practice conversation with a ${o.level}-level learner.
-${o.setup}
+// A little randomness so the character does not repeat itself. Some models reject these, so there is a fallback.
+const SAMPLING = { temperature: 1, frequency_penalty: 0.4, presence_penalty: 0.3 };
 
-Rules:
-- Speak only Italian, at CEFR ${o.level}: ${g.style}. Keep each reply to ${g.length}.
-- Stay in character and keep the conversation moving. Usually finish with one natural question or prompt for the learner.
-- The learner's messages come from speech transcription and may contain grammar mistakes. Do NOT correct them and do not comment on their Italian. Just answer naturally what they meant. If a message is unintelligible, politely ask them to repeat.
+function conversationPrompt(o: ConverseOptions): string {
+  const g = LEVEL_GUIDE[o.level] ?? LEVEL_GUIDE.B1;
+  const c = o.character;
+  const lastExchange = o.userTurns >= o.maxTurns - 1;
+  return `${o.persona ?? ""}
+${o.setup}
+${c ? `\nCHARACTER\n${c.personality}\nToday you are ${c.mood}.${c.twist ? ` Something that is going on: ${c.twist}.` : ""}\n` : ""}
+You are a real person in a real situation. You are NOT a teacher, tutor or assistant: never explain Italian, never correct the learner, never mention an exercise or being an AI.
+The person you are talking to is learning Italian (level ${o.level}). Use ${g.style}. A typical line is ${g.length}, but vary it: sometimes just a quick reaction ("Ah, davvero?", "Mhm, capisco."), sometimes more when you have something to say.
+
+HOW TO SOUND LIKE A PERSON
+- React first to what they actually said (surprise, amusement, sympathy, doubt, enthusiasm), then move the scene on. Pick up on specific details they gave, and refer back to things said earlier.
+- Share something about yourself or your day now and then, give opinions, tease gently if it suits you. Don't just interview them.
+- Do NOT end every line with a question. About half of your lines should end with a statement, a comment or a reaction.
+- Vary how your lines start and how long they are. Never begin two lines in a row with the same word, and do not reuse phrases or fillers you have already used.
+- Speak real spoken Italian, because your lines are read aloud: short sentences, interjections that fit YOUR character (not the same ones every time), the occasional self-correction or hesitation ("cioè...", "anzi...", "ehm"). No lists, no formal written style, no stage directions, no emojis.
+- The learner's messages come from speech transcription and may contain grammar mistakes. Answer what they meant. If you did not understand, react as a real person would ("Come? Scusa, non ho capito.") and let them try again.
+- "tone": 2 to 5 English words for how you say this exact line (for example "warm and amused", "in a hurry", "doubtful", "apologetic", "teasing"). Make it match the line, and vary it.
+
+ENDING
 - You decide when the conversation ends. Set "end" to true when the scene has reached its natural conclusion (order paid, problem solved, interview over, goodbye said) or when the limit below is reached. When "end" is true, "reply" must be a natural closing line with no question.
 - The learner has spoken ${o.userTurns} time(s) so far. The conversation must be over after at most ${o.maxTurns} learner turns.${
     lastExchange ? " This is the final exchange: wrap up now with a closing line and set end to true." : ""
   }`;
+}
 
+export async function converse(history: ChatTurn[], o: ConverseOptions): Promise<Reply> {
   const messages = [
-    { role: "system", content: system },
+    { role: "system", content: conversationPrompt(o) },
     ...(history.length
       ? history.map((t) => ({ role: t.role === "ai" ? "assistant" : "user", content: t.text }))
       : [{ role: "user", content: "[Begin the scene now with your opening line.]" }]),
   ];
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${o.key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: o.model,
-      messages,
-      response_format: { type: "json_schema", json_schema: { name: "reply", strict: true, schema: REPLY_SCHEMA } },
-    }),
-  });
+  const send = (extra: Record<string, unknown>) =>
+    fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${o.key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: o.model,
+        messages,
+        response_format: { type: "json_schema", json_schema: { name: "reply", strict: true, schema: REPLY_SCHEMA } },
+        ...extra,
+      }),
+    });
+  let res = await send(SAMPLING);
+  if (res.status === 400 && /temperature|penalty/i.test(await res.clone().text())) res = await send({});
   if (!res.ok) throw new Error(`Conversation ${res.status}: ${await res.text()}`);
   const msg = (await res.json()).choices?.[0]?.message;
   if (!msg?.content) throw new Error(`No reply returned${msg?.refusal ? `: ${msg.refusal}` : ""}`);
-  return JSON.parse(msg.content) as { reply: string; end: boolean };
+  return JSON.parse(msg.content) as Reply;
 }
 
 // ---------- role-play: spoken replies ----------
@@ -184,6 +217,8 @@ export interface SpeakOptions {
   model: string;
   voice: string;
   level: string;
+  style?: string; // who is speaking and how, e.g. "a calm, reassuring doctor"
+  tone?: string; // how this particular line should sound, e.g. "warm and amused"
 }
 
 export async function speak(text: string, o: SpeakOptions): Promise<Blob> {
@@ -192,12 +227,14 @@ export async function speak(text: string, o: SpeakOptions): Promise<Blob> {
   // Only the newer gpt-4o speech models accept style instructions.
   if (o.model.startsWith("gpt-4o")) {
     body.instructions =
-      "You are a native Italian speaker from Italy. Speak with an authentic Italian accent and natural, " +
-      "expressive intonation, like a real person in a conversation, not like someone reading aloud, and never " +
-      "like an English speaker reading Italian. " +
+      `You are ${o.style ?? "a native Italian speaker"}, from Italy. Speak with an authentic Italian accent and ` +
+      "natural, expressive intonation, the way a real person talks in this situation: varied pitch, small natural " +
+      "hesitations, a little emotion. Never sound like someone reading aloud, and never like an English speaker " +
+      "reading Italian. " +
       (slow
         ? "Speak slowly and very clearly, as to a beginner, with small pauses between phrases."
-        : "Speak at a natural conversational pace.");
+        : "Speak at a natural conversational pace.") +
+      (o.tone ? ` Deliver this particular line ${o.tone}.` : "");
   }
   const res = await fetch("https://api.openai.com/v1/audio/speech", {
     method: "POST",
