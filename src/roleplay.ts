@@ -1,3 +1,4 @@
+import { failureNotice, reviewSegments } from "./review";
 import { Ambient, NoRecordingError, hasRecording } from "./ambient";
 import type { AmbientKind } from "./ambient";
 import { renderConversation } from "./chat";
@@ -47,6 +48,9 @@ const ambientLevelEl = $<HTMLSelectElement>("rp-ambient-level");
 type Phase = "idle" | "ai" | "user" | "processing" | "ended";
 
 let phase: Phase = "idle";
+let replyController = new AbortController();
+let starting = false;
+let ending = false;
 let runId = 0; // bumped whenever a conversation starts or is ended, so stale async work can bail out
 let scenario: Scenario | null = null;
 let character: Character | null = null; // who the other person is today: personality, mood, what is going on
@@ -166,12 +170,16 @@ export function renderScenarios() {
 }
 
 async function start(sc: Scenario) {
+  if (starting || phase !== "idle") return;
   const st = getSettings();
   msgEl.textContent = "";
   if (!st.key) {
     msgEl.textContent = "Add your OpenAI API key in Settings (on the Practice tab) first.";
     return;
   }
+  starting = true;
+  replyController.abort();
+  replyController = new AbortController();
   const id = ++runId;
   scenario = sc;
   character = { personality: sc.personality, mood: pick(MOODS), twist: pick(sc.twists) };
@@ -188,6 +196,8 @@ async function start(sc: Scenario) {
     transcriber = null;
     msgEl.textContent = `Microphone error: ${err instanceof Error ? err.message : err}`;
     return;
+  } finally {
+    starting = false;
   }
   closePopover();
   phase = "ai";
@@ -215,7 +225,7 @@ async function aiTurn(id: number) {
   try {
     const r = await converse(
       turns.map(({ role, text }) => ({ role, text })),
-      { key: st.key, model: st.fixModel, level: st.level, setup: scenario!.setup, persona: personaText(scenario!), character: character ?? undefined, userTurns, maxTurns: max },
+      { signal: replyController.signal, key: st.key, model: st.fixModel, level: st.level, setup: scenario!.setup, persona: personaText(scenario!), character: character ?? undefined, userTurns, maxTurns: max },
     );
     if (id !== runId) return;
     turns.push({ role: "ai", text: r.reply, tone: r.tone });
@@ -259,6 +269,7 @@ async function playText(text: string, id: number, tone?: string) {
     let blob = voiceCache.get(cacheKey);
     if (!blob) {
       blob = await speak(text, {
+        signal: replyController.signal,
         key: st.key,
         model: st.ttsModel,
         voice,
@@ -283,13 +294,16 @@ async function playText(text: string, id: number, tone?: string) {
     a.pause();
     URL.revokeObjectURL(url);
   } catch (err) {
+    if (id !== runId) return;
     setStatus(`Voice unavailable (${err instanceof Error ? err.message.slice(0, 80) : err}). Continuing with text.`);
     await sleep(1500);
   } finally {
-    audio = null;
-    stopAudio = null;
-    updateControls();
-    syncAmbient(false);
+    if (id === runId) {
+      audio = null;
+      stopAudio = null;
+      updateControls();
+      syncAmbient(false);
+    }
   }
 }
 
@@ -389,14 +403,15 @@ async function endUserTurn() {
   if (id !== runId) return;
 
   const turn = current!;
-  turn.segments = turn.segments!.filter((s) => s.text);
+  turn.segments = reviewSegments(turn.segments!);
   turn.text = turn.segments.map((s) => s.text).join(" ");
   if (!turn.text) {
     // nothing recognised: drop the empty turn and listen again
-    turns.pop();
+    const failed = !!failureNotice(turn.segments);
+    if (!failed) turns.pop();
     current = null;
     userTurn();
-    setStatus("I didn't catch anything. " + userPrompt());
+    setStatus((failed ? "The audio could not be transcribed. Please try again. " : "I didn't catch anything. ") + userPrompt());
     return;
   }
   userTurns++;
@@ -446,22 +461,35 @@ function renderLog(interactive = false) {
 // ---------- ending ----------
 /** The learner ends the conversation early. */
 async function endNow() {
-  if (phase === "idle" || phase === "ended") return;
-  const id = ++runId; // cancels anything still in flight
+  if (phase === "idle" || phase === "ended" || ending) return;
+  ending = true;
+  endBtn.disabled = true;
+  const id = ++runId; // cancels the reply and voice; captured speech is still reviewed
+  replyController.abort();
+  phase = "processing";
+  updateControls();
   window.clearInterval(timer);
   stopAudio?.();
+  audio?.pause();
+  audio = null;
+  stopAudio = null;
   if (current) {
     transcriber?.flush();
     transcriber?.setPaused(true);
     await Promise.allSettled([...pending]);
     const turn = current;
-    turn.segments = turn.segments!.filter((s) => s.text);
+    turn.segments = reviewSegments(turn.segments!);
     turn.text = turn.segments.map((s) => s.text).join(" ");
     if (turn.text) userTurns++;
-    else turns = turns.filter((t) => t !== turn);
+    else if (!turn.segments.length) turns = turns.filter((t) => t !== turn);
     current = null;
   }
-  await finish(id);
+  try {
+    await finish(id);
+  } finally {
+    ending = false;
+    endBtn.disabled = false;
+  }
 }
 
 /** The conversation is over (by the AI or by the learner): show the review. */
@@ -488,13 +516,16 @@ async function finish(id: number) {
     : count
       ? `Conversation finished. Click an underlined mistake to see why${hints ? ", or ✎ for a more natural phrasing" : ""}.`
       : "Conversation finished. No mistakes found. Nice!";
+  const notice = failureNotice(finished);
+  if (notice) tipEl.textContent = notice + (count ? " Click underlined mistakes to review the available results." : "");
   summaryBody.replaceChildren(root);
   summaryTitle.textContent = `All mistakes (${count})`;
   summaryWrap.hidden = count === 0;
 
   const checked = finished.some((s) => s.correction);
-  if (checked) recordSession(finished);
-  saveNote.textContent = checked ? "Added to My mistakes." : "";
+  saveNote.textContent = checked
+    ? recordSession(finished) ? "Added to My mistakes." : "Could not store progress. Browser storage may be full or unavailable."
+    : "";
   saveBar.hidden = !finished.length;
   saveBtn.disabled = false;
   saveBtn.textContent = "Save this conversation";
@@ -502,7 +533,11 @@ async function finish(id: number) {
 
 saveBtn.addEventListener("click", () => {
   if (!finished.length || !scenario) return;
-  addSaved(finished, { title: `${scenario.title} · ${scenario.titleEn}`, turns });
+  if (!addSaved(finished, { title: `${scenario.title} · ${scenario.titleEn}`, turns })) {
+    saveNote.textContent = "Could not save. Browser storage may be full or unavailable. Free some space and try again.";
+    return;
+  }
   saveBtn.disabled = true;
   saveBtn.textContent = "Saved ✓";
+  saveNote.textContent = "Saved on this device.";
 });

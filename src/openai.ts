@@ -1,3 +1,5 @@
+import { apiFetch } from "./request";
+import { TYPE_LABELS } from "./types";
 import type { Correction } from "./types";
 
 export interface TranscribeOptions {
@@ -13,7 +15,7 @@ export async function transcribe(wav: Blob, o: TranscribeOptions): Promise<strin
   form.append("language", "it");
   form.append("temperature", "0");
   form.append("prompt", o.prompt);
-  const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+  const res = await apiFetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
     headers: { Authorization: `Bearer ${o.key}` },
     body: form,
@@ -91,7 +93,7 @@ export async function correct(
   const user =
     (context.length ? `Earlier text (context only, do not correct):\n${context.join(" ")}\n\n` : "") +
     `Fragment to check:\n${sentence}`;
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  const res = await apiFetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${o.key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -125,6 +127,7 @@ export interface Character {
 }
 
 export interface ConverseOptions {
+  signal?: AbortSignal;
   key: string;
   model: string;
   level: string;
@@ -193,8 +196,9 @@ export async function converse(history: ChatTurn[], o: ConverseOptions): Promise
       : [{ role: "user", content: "[Begin the scene now with your opening line.]" }]),
   ];
   const send = (extra: Record<string, unknown>) =>
-    fetch("https://api.openai.com/v1/chat/completions", {
+    apiFetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
+      signal: o.signal,
       headers: { Authorization: `Bearer ${o.key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: o.model,
@@ -213,6 +217,7 @@ export async function converse(history: ChatTurn[], o: ConverseOptions): Promise
 
 // ---------- role-play: spoken replies ----------
 export interface SpeakOptions {
+  signal?: AbortSignal;
   key: string;
   model: string;
   voice: string;
@@ -236,11 +241,103 @@ export async function speak(text: string, o: SpeakOptions): Promise<Blob> {
         : "Speak at a natural conversational pace.") +
       (o.tone ? ` Deliver this particular line ${o.tone}.` : "");
   }
-  const res = await fetch("https://api.openai.com/v1/audio/speech", {
+  const res = await apiFetch("https://api.openai.com/v1/audio/speech", {
     method: "POST",
+    signal: o.signal,
     headers: { Authorization: `Bearer ${o.key}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Speech ${res.status}: ${await res.text()}`);
   return await res.blob();
+}
+
+// ---------- exercises ----------
+export interface ExerciseRequest {
+  key: string;
+  model: string;
+  level: string;
+  explainIn: "English" | "simple Italian";
+  count: number;
+  /** What the learner wants to practise, with how they are doing in it. */
+  focus: { type: string; label: string; mistakes: number; accuracy: number | null }[];
+  /** Mistakes the learner keeps repeating. */
+  pairs: { wrong: string; right: string; type: string; count: number }[];
+}
+
+const EXERCISES_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["exercises"],
+  properties: {
+    exercises: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["kind", "type", "prompt", "options", "answer", "accepted", "explanation", "hint"],
+        properties: {
+          kind: { type: "string", enum: ["choice", "fill", "reorder"] },
+          type: { type: "string", enum: Object.keys(TYPE_LABELS) },
+          prompt: { type: "string" },
+          options: { type: "array", items: { type: "string" } },
+          answer: { type: "string" },
+          accepted: { type: "array", items: { type: "string" } },
+          explanation: { type: "string" },
+          hint: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
+function exercisePrompt(o: ExerciseRequest): string {
+  const focus = o.focus
+    .map((f) => {
+      const acc = f.accuracy === null ? "no exercise results yet" : `${Math.round(f.accuracy * 100)}% right in earlier exercises`;
+      return `- ${f.label} (type "${f.type}"): ${f.mistakes} mistakes while speaking, ${acc}`;
+    })
+    .join("\n");
+  const pairs = o.pairs.length
+    ? o.pairs.map((p) => `- "${p.wrong}" instead of "${p.right}" (${p.type}, ${p.count}x)`).join("\n")
+    : "(none recorded yet)";
+  return `You write short Italian grammar exercises for a ${o.level}-level learner, built from the learner's own weak spots.
+
+Topics to practise, with how the learner is doing (give more exercises to topics with more mistakes or lower accuracy):
+${focus}
+
+Mistakes the learner keeps repeating:
+${pairs}
+
+Write exactly ${o.count} exercises. Use these three kinds:
+- "choice": a sentence with one blank written ___ and 3 or 4 options. The wrong options must be tempting (for example the form the learner usually gets wrong). "answer" is the correct option.
+- "fill": a sentence with one blank written ___ . The learner types the missing word or short phrase. "answer" is only what goes in the blank.
+- "reorder": the learner puts scrambled words in the right order. Use it for word-order and verb-placement topics. "answer" is the full correct sentence of 4 to 9 words with no tricky punctuation, "prompt" is its English translation, and "accepted" lists other correct word orders if there are any.
+
+Rules:
+- Every exercise needs a different, natural sentence at ${o.level} level. Do not copy the learner's old sentences. Use the same patterns with different words. You may reuse two of the repeated mistakes above as they are.
+- Spread the exercises over the topics, and mix the three kinds. Use "fill" and "choice" for gender, articles, agreement, conjugation, auxiliary and preposition topics.
+- In "choice" and "fill", "prompt" is the Italian sentence with exactly one ___ , and "options" is [] for "fill". For "reorder", "options" is [].
+- "accepted": other answers that are also correct (an empty list if there are none). Be generous: if two answers are both good Italian, list both.
+- "explanation": one or two short sentences in ${o.explainIn}, naming the rule. For gender or article topics, state the noun's gender (for example "città" is feminine).
+- "hint": the English translation of the finished sentence.
+- "type": the topic the exercise practises, one of the topic types above.
+- All Italian must be correct, natural, standard Italian.`;
+}
+
+/** Asks for a set of exercises. The result still has to be checked with validateExercise. */
+export async function generateExercises(o: ExerciseRequest): Promise<unknown[]> {
+  const res = await apiFetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${o.key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: o.model,
+      messages: [{ role: "system", content: exercisePrompt(o) }, { role: "user", content: "Write the exercises now." }],
+      response_format: { type: "json_schema", json_schema: { name: "exercises", strict: true, schema: EXERCISES_SCHEMA } },
+    }),
+  });
+  if (!res.ok) throw new Error(`Exercises ${res.status}: ${await res.text()}`);
+  const msg = (await res.json()).choices?.[0]?.message;
+  if (!msg?.content) throw new Error(`No exercises returned${msg?.refusal ? `: ${msg.refusal}` : ""}`);
+  const parsed = JSON.parse(msg.content) as { exercises?: unknown[] };
+  return parsed.exercises ?? [];
 }

@@ -1,5 +1,8 @@
+import { failureNotice, reviewSegments } from "./review";
 import "./style.css";
 import { renderConversation } from "./chat";
+import { renderExercises } from "./exercises";
+import { loadExStats, resetExStats } from "./exstats";
 import { speak } from "./openai";
 import { closePopover, renderPaper } from "./paper";
 import { processChunk } from "./pipeline";
@@ -40,8 +43,8 @@ const topicBtn = $<HTMLButtonElement>("topic-btn");
 const topicCard = $("topic-card");
 
 // ---------- tabs ----------
-type Tab = "practice" | "roleplay" | "progress" | "saved";
-const TABS: Tab[] = ["practice", "roleplay", "progress", "saved"];
+type Tab = "practice" | "roleplay" | "exercises" | "progress" | "saved";
+const TABS: Tab[] = ["practice", "roleplay", "exercises", "progress", "saved"];
 
 function showTab(tab: Tab) {
   closePopover();
@@ -49,6 +52,7 @@ function showTab(tab: Tab) {
   TABS.forEach((t) => ($(`panel-${t}`).hidden = t !== tab));
   $("levelbar").hidden = tab === "progress" || tab === "saved";
   if (tab === "roleplay") renderScenarios();
+  if (tab === "exercises") renderExercises();
   if (tab === "progress") renderProgress();
   if (tab === "saved") renderSavedList();
 }
@@ -128,6 +132,7 @@ async function start() {
     $<HTMLDetailsElement>("settings").open = true;
     return;
   }
+  recBtn.disabled = true;
   closePopover();
   segs = [];
   prevCutMid = false;
@@ -154,6 +159,8 @@ async function start() {
   } catch (err) {
     transcriber = null;
     statusEl.textContent = `Microphone error: ${err instanceof Error ? err.message : err}`;
+  } finally {
+    recBtn.disabled = false;
   }
 }
 
@@ -165,16 +172,15 @@ async function stop() {
   paperEl.classList.remove("speaking");
   await Promise.allSettled([...pending]);
 
-  const done = segs.filter((s) => s.text);
+  const done = reviewSegments(segs);
   segs = done;
   renderPaper(paperEl, done, true);
   describeReview(done);
 
-  // The session itself is not kept unless the user chooses to. Only anonymous totals go to "My mistakes".
+  // The session itself is not kept unless the user chooses to. Only totals and recurring error pairs go to "My mistakes".
   lastSession = done.length ? done : null;
   if (done.some((s) => s.correction)) {
-    recordSession(done);
-    saveNote.textContent = "Added to My mistakes.";
+    saveNote.textContent = recordSession(done) ? "Added to My mistakes." : "Could not store progress. Browser storage may be full or unavailable.";
   } else {
     saveNote.textContent = "";
   }
@@ -192,9 +198,13 @@ recBtn.addEventListener("click", () => (transcriber ? stop() : start()));
 
 saveBtn.addEventListener("click", () => {
   if (!lastSession) return;
-  addSaved(lastSession);
+  if (!addSaved(lastSession)) {
+    saveNote.textContent = "Could not save. Browser storage may be full or unavailable. Free some space and try again.";
+    return;
+  }
   saveBtn.disabled = true;
   saveBtn.textContent = "Saved ✓";
+  saveNote.textContent = "Saved on this device.";
 });
 
 // ---------- practice: review ----------
@@ -212,6 +222,8 @@ function describeReview(list: Sentence[]) {
     : tips
       ? "No mistakes found. Click ✎ for a more natural phrasing."
       : "No mistakes found. Nice!";
+  const notice = failureNotice(list);
+  if (notice) tipEl.textContent = notice + (count ? " Click underlined mistakes to review the available results." : "");
   summaryEl.hidden = count === 0;
   summaryTitle.textContent = `All mistakes (${count})`;
   summaryBody.append(root);
@@ -220,8 +232,10 @@ function describeReview(list: Sentence[]) {
 // ---------- my mistakes ----------
 function renderProgress() {
   progressBody.replaceChildren(
-    buildProgress(loadStats(), () => {
-      resetStats();
+    buildProgress(loadStats(), loadExStats(), () => {
+      const speechReset = resetStats();
+      const exercisesReset = resetExStats();
+      if (!speechReset || !exercisesReset) alert("Could not reset all progress. Browser storage is unavailable.");
       renderProgress();
     }),
   );
@@ -259,7 +273,10 @@ function savedItem(s: SavedSession): HTMLElement {
   del.type = "button";
   del.addEventListener("click", () => {
     if (confirm("Delete this saved session?")) {
-      deleteSaved(s.id);
+      if (!deleteSaved(s.id)) {
+        alert("Could not delete this session. Browser storage is unavailable.");
+        return;
+      }
       renderSavedList();
     }
   });

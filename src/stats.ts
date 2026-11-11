@@ -21,7 +21,7 @@ export function loadStats(): Stats {
 const norm = (s: string) => s.toLowerCase().replace(/[.,;:!?"“”]/g, "").trim();
 
 /** Adds one finished session to the running totals. Only chunks that were actually checked count. */
-export function recordSession(list: Sentence[]): Stats {
+export function recordSession(list: Sentence[]): Stats | null {
   const stats = loadStats();
   const now = Date.now();
   let words = 0;
@@ -56,10 +56,10 @@ export function recordSession(list: Sentence[]): Stats {
       .slice(0, keys.length - MAX_PAIRS)
       .forEach((k) => delete stats.pairs[k]);
   }
-  store.set(KEY, JSON.stringify(stats));
+  if (!store.set(KEY, JSON.stringify(stats))) return null;
   return stats;
 }
 
 export function resetStats() {
-  store.remove(KEY);
+  return store.remove(KEY);
 }

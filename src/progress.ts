@@ -1,13 +1,15 @@
 import { el } from "./render";
 import { TYPE_LABELS } from "./types";
-import type { ErrorType, Stats } from "./types";
+import type { ErrorType, ExerciseStats, Stats } from "./types";
 
-export function buildProgress(stats: Stats, onReset: () => void): HTMLElement {
+export function buildProgress(stats: Stats, exStats: ExerciseStats, onReset: () => void): HTMLElement {
   const root = el("div", "progress");
   if (!stats.sessions) {
     root.append(
       el("p", "empty", "Finish a practice session and the patterns in your mistakes will show up here. Everything stays on this device."),
     );
+    exerciseSection(root, exStats);
+    if (exStats.total) appendReset(root, onReset);
     return root;
   }
 
@@ -49,6 +51,8 @@ export function buildProgress(stats: Stats, onReset: () => void): HTMLElement {
     }
   }
 
+  exerciseSection(root, exStats);
+
   // the exact mistakes that keep coming back
   root.append(el("h2", "", "Keep running into"));
   const repeats = Object.values(stats.pairs)
@@ -89,6 +93,11 @@ export function buildProgress(stats: Stats, onReset: () => void): HTMLElement {
     root.append(chart);
   }
 
+  appendReset(root, onReset);
+  return root;
+}
+
+function appendReset(root: HTMLElement, onReset: () => void) {
   const reset = el("button", "btn danger", "Reset my progress");
   reset.type = "button";
   reset.addEventListener("click", () => {
@@ -97,5 +106,28 @@ export function buildProgress(stats: Stats, onReset: () => void): HTMLElement {
   const resetRow = el("div", "reset-row");
   resetRow.append(reset);
   root.append(resetRow);
-  return root;
+}
+
+/** How the exercises are going: overall, and accuracy by topic. */
+function exerciseSection(root: HTMLElement, exStats: ExerciseStats) {
+  if (exStats.total > 0) {
+    root.append(el("h2", "", "Exercises"));
+    root.append(
+      el("p", "empty", `${exStats.correct} of ${exStats.total} right (${Math.round((exStats.correct / exStats.total) * 100)}%). Accuracy by topic:`),
+    );
+    const rows = (Object.entries(exStats.byType) as [ErrorType, { right: number; wrong: number }][])
+      .map(([type, r]) => ({ type, ...r, n: r.right + r.wrong }))
+      .filter((r) => r.n > 0)
+      .sort((a, b) => a.right / a.n - b.right / b.n);
+    for (const r of rows) {
+      const acc = r.right / r.n;
+      const row = el("div", "bar-row");
+      const track = el("div", "bar-track");
+      const fill = el("div", "bar-fill good");
+      fill.style.width = `${acc * 100}%`;
+      track.append(fill);
+      row.append(el("div", "bar-label", TYPE_LABELS[r.type] ?? r.type), track, el("div", "bar-count", `${Math.round(acc * 100)}% · ${r.n}`));
+      root.append(row);
+    }
+  }
 }

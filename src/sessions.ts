@@ -12,13 +12,13 @@ export function loadSaved(): SavedSession[] {
   }
 }
 
-export function addSaved(sentences: Sentence[], extra: { title?: string; turns?: Turn[] } = {}): void {
+export function addSaved(sentences: Sentence[], extra: { title?: string; turns?: Turn[] } = {}): boolean {
   const existing = loadSaved();
   const id = Math.max(Date.now(), ...existing.map((s) => s.id + 1)); // always unique
   const all = [{ id, date: new Date().toISOString(), sentences, ...extra }, ...existing];
-  store.set(KEY, JSON.stringify(all.slice(0, MAX_SAVED)));
+  return store.set(KEY, JSON.stringify(all.slice(0, MAX_SAVED)));
 }
 
-export function deleteSaved(id: number): void {
-  store.set(KEY, JSON.stringify(loadSaved().filter((s) => s.id !== id)));
+export function deleteSaved(id: number): boolean {
+  return store.set(KEY, JSON.stringify(loadSaved().filter((s) => s.id !== id)));
 }

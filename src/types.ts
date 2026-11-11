@@ -79,3 +79,31 @@ export interface Stats {
   pairs: Record<string, PairStat>;
   history: { date: string; words: number; mistakes: number }[];
 }
+
+// ---------- exercises ----------
+export type ExerciseKind = "choice" | "fill" | "reorder";
+
+export interface Exercise {
+  kind: ExerciseKind;
+  /** Which kind of mistake this exercise practises. */
+  type: ErrorType;
+  /** choice and fill: an Italian sentence with one blank written ___ . reorder: the English meaning. */
+  prompt: string;
+  /** choice only: the options to pick from. */
+  options: string[];
+  /** choice and fill: what goes in the blank. reorder: the whole correct sentence. */
+  answer: string;
+  /** Other answers that are also right. */
+  accepted: string[];
+  explanation: string;
+  /** English translation of the finished sentence. */
+  hint: string;
+}
+
+/** How the learner is doing in the exercises. */
+export interface ExerciseStats {
+  total: number;
+  correct: number;
+  byType: Partial<Record<ErrorType, { right: number; wrong: number }>>;
+  history: { date: string; total: number; correct: number }[];
+}

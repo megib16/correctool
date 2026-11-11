@@ -210,3 +210,59 @@ label.check input { width: auto; margin-top: .25rem; }
 .ambient-row select { width: auto; }
 .hint { color: var(--muted); font-size: .85rem; }
 .btn.small { padding: .3rem .8rem; font-size: .85rem; margin-top: .5rem; }
+
+/* exercises */
+.ex-heading { font-family: var(--serif); font-size: 1.2rem; margin: 1.4rem 0 .6rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .6rem; }
+.chip { display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: .6rem 1rem; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 14px; font: inherit; cursor: pointer; }
+.chip:hover { border-color: var(--green); }
+.chip.selected { background: var(--green-soft); border-color: var(--green); }
+.chip-label { font-weight: 600; }
+.chip-detail { color: var(--muted); font-size: .8rem; }
+.ex-start-row { display: flex; align-items: center; justify-content: center; gap: 1rem; flex-wrap: wrap; margin-top: 1.6rem; }
+.ex-start-row select { width: auto; display: inline-block; margin-left: .4rem; }
+.rp-msg.busy { color: var(--muted); }
+
+.ex-head { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+.ex-count { color: var(--muted); font-size: .9rem; white-space: nowrap; }
+.ex-progress { flex: 1; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+.ex-progress-fill { height: 100%; background: var(--green); border-radius: 4px; transition: width .2s; }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--muted); font: inherit; font-size: .9rem; cursor: pointer; text-decoration: underline; }
+.linkbtn:hover { color: var(--fg); }
+
+.ex-card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 1.6rem 1.8rem; }
+@media (max-width: 560px) { .ex-card { padding: 1.2rem; } }
+.ex-topic { color: var(--green); font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+.ex-instruction { color: var(--muted); margin-top: .2rem; }
+.ex-sentence { font-family: var(--serif); font-size: 1.7rem; line-height: 1.5; margin: 1rem 0 .3rem; }
+.ex-sentence .blank { display: inline-block; min-width: 3.5rem; margin: 0 .2rem; color: transparent; border-bottom: 3px solid var(--green); }
+.ex-hint { color: var(--muted); font-size: .95rem; margin-bottom: 1rem; }
+.ex-options { display: flex; flex-wrap: wrap; gap: .7rem; margin-top: 1rem; }
+.ex-option { padding: .7rem 1.4rem; font: inherit; font-size: 1.15rem; background: var(--bg); color: var(--fg); border: 2px solid var(--line); border-radius: 12px; cursor: pointer; }
+.ex-option:hover:not(:disabled) { border-color: var(--green); }
+.ex-option:disabled { cursor: default; }
+.ex-option.right { background: var(--green-soft); border-color: var(--green); }
+.ex-option.wrong { background: var(--red-bg); border-color: var(--red); }
+.ex-fill { display: flex; gap: .7rem; margin-top: 1rem; flex-wrap: wrap; }
+.ex-fill input { flex: 1; min-width: 12rem; font-size: 1.2rem; }
+.ex-line { min-height: 3.2rem; display: flex; flex-wrap: wrap; gap: .5rem; padding: .6rem; border-bottom: 2px solid var(--green); margin-top: 1rem; }
+.ex-line.empty::before { content: "Tap the words in order"; color: var(--muted); font-size: .95rem; align-self: center; }
+.ex-pool { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
+.word { padding: .45rem .9rem; font: inherit; font-size: 1.1rem; background: var(--bg); color: var(--fg); border: 2px solid var(--line); border-radius: 10px; cursor: pointer; }
+.word:disabled { opacity: .3; cursor: default; }
+.word.placed { background: var(--green-soft); border-color: var(--green); }
+
+.ex-feedback { margin-top: 1.4rem; padding: 1rem 1.2rem; border-radius: 12px; }
+.ex-feedback[hidden] { display: none; }
+.ex-feedback.ok { background: var(--green-soft); border: 1px solid var(--green); }
+.ex-feedback.bad { background: var(--red-bg); border: 1px solid var(--red); }
+.ex-verdict { font-weight: 700; font-size: 1.1rem; }
+.ex-feedback.ok .ex-verdict { color: var(--green); }
+.ex-feedback.bad .ex-verdict { color: var(--red); }
+.ex-correct { font-family: var(--serif); font-size: 1.25rem; margin-top: .3rem; }
+.ex-yours { color: var(--muted); margin-top: .3rem; }
+.ex-actions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
+
+.ex-score { font-family: var(--serif); font-size: 3.5rem; font-weight: 700; color: var(--green); text-align: center; }
+.ex-score-msg { text-align: center; color: var(--muted); margin-top: 0; }
+.bar-fill.good { background: var(--green); }

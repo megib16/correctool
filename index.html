@@ -15,13 +15,14 @@
     <div class="stripe" aria-hidden="true"></div>
     <main>
       <header class="hero">
-        <h1>Correct<span>ool</span></h1>
+        <h1>Correc<span>tool</span></h1>
         <p class="lead">Speak Italian out loud. We catch the slips as you go, then you review them at your own pace.</p>
       </header>
 
       <nav class="tabs" role="tablist">
         <button class="tab active" data-tab="practice" type="button">Practice</button>
         <button class="tab" data-tab="roleplay" type="button">Role-play</button>
+        <button class="tab" data-tab="exercises" type="button">Exercises</button>
         <button class="tab" data-tab="progress" type="button">My mistakes</button>
         <button class="tab" data-tab="saved" type="button">Saved</button>
       </nav>
@@ -72,8 +73,11 @@
 
         <details id="settings" class="card settings">
           <summary>⚙ Settings</summary>
-          <label for="key">OpenAI API key <small>(stored only in this browser)</small></label>
+          <label for="key">OpenAI API key <small>(used directly from this browser)</small></label>
           <input id="key" type="password" placeholder="sk-..." autocomplete="off" />
+          <label class="check"><input id="remember-key" type="checkbox" /> Remember key on this device</label>
+          <p class="hint">By default, your key lasts for this tab’s session. Remember it only on a trusted device. Audio and text are sent to OpenAI for processing.</p>
+          <p id="key-storage-note" class="hint" role="status"></p>
 
           <div class="row">
             <div>
@@ -244,6 +248,13 @@
             <div class="reset-row"><button id="rp-new" class="btn" type="button">New conversation</button></div>
           </div>
         </div>
+      </div>
+
+      <!-- EXERCISES -->
+      <div class="panel" id="panel-exercises" hidden>
+        <div id="ex-setup"></div>
+        <div id="ex-run" hidden></div>
+        <div id="ex-done" hidden></div>
       </div>
 
       <!-- MY MISTAKES -->

@@ -1,3 +1,4 @@
+import { loadCredential, saveCredential } from "./credentials";
 import { store } from "./store";
 import { LEVELS } from "./topics";
 import type { Level } from "./topics";
@@ -12,8 +13,18 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 
 type Field = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
 const keyEl = $<HTMLInputElement>("key");
+const rememberKey = $<HTMLInputElement>("remember-key");
+const credential = loadCredential();
+keyEl.value = credential.key;
+rememberKey.checked = credential.remember;
+const updateCredential = () => {
+  $("key-storage-note").textContent = saveCredential(keyEl.value.trim(), rememberKey.checked)
+    ? "" : "Could not update key storage. Check your browser storage settings.";
+};
+keyEl.addEventListener("input", updateCredential);
+rememberKey.addEventListener("change", updateCredential);
+
 const fields: [Field, string, string][] = [
-  [keyEl, "key", ""],
   [$("stt-model"), "stt", "gpt-4o-transcribe"],
   [$("fix-model"), "fix", "gpt-4o"],
   [$("explain"), "explain", "English"],

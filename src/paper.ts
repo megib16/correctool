@@ -75,7 +75,7 @@ export function renderPaper(target: HTMLElement, list: Sentence[], clickable: bo
       target.append(play);
     }
     if (s.status === "failed") {
-      const warn = el("span", "warn", " ⚠");
+      const warn = el("span", "warn", s.text ? " ⚠ Correction failed" : " ⚠ Transcription failed");
       warn.title = s.failure ?? "Something went wrong.";
       target.append(warn);
     }
